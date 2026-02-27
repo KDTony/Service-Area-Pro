@@ -1,0 +1,7 @@
+{
+  "name": "Service Area Pro",
+  "description": "An interactive tool for creating and exporting custom zip code service area maps with AI-assisted radius discovery and manual selection.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

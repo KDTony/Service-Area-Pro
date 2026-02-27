@@ -1,0 +1,1354 @@
+
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, Play, ChevronLeft, ChevronRight, Combine, Briefcase, Star } from 'lucide-react';
+import * as turf from '@turf/turf';
+import MapView from './components/MapView';
+import Sidebar from './components/Sidebar';
+import ExportModal from './components/ExportModal';
+import PolygonInfoPanel from './components/PolygonInfoPanel';
+import { ZipCodeData, SavedPolygon, SavedMapState } from './types';
+import { analyzeServiceArea } from './geminiService';
+import { STATES, stateManifest, COLORS } from './constants';
+
+const App: React.FC = () => {
+  const [initialZip, setInitialZip] = useState('');
+  const [radius, setRadius] = useState(10);
+  const [loading, setLoading] = useState(false);
+  const [searchingPolygonId, setSearchingPolygonId] = useState<string | null>(null);
+  
+  // activeZips stores all loaded centroids for the 12 states
+  const [activeZips, setActiveZips] = useState<ZipCodeData[]>([]);
+  const [loadedStates, setLoadedStates] = useState<Set<string>>(new Set());
+  const [selectedZips, setSelectedZips] = useState<Set<string>>(new Set());
+  const [savedPolygons, setSavedPolygons] = useState<SavedPolygon[]>([]);
+  const [selectedPolygonIds, setSelectedPolygonIds] = useState<Set<string>>(new Set());
+  const [editingPolygon, setEditingPolygon] = useState<SavedPolygon | null>(null);
+  const [selectedInfoPolygonId, setSelectedInfoPolygonId] = useState<string | null>(null);
+
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // Map State
+  const [mapCenter, setMapCenter] = useState<[number, number]>([37.0902, -95.7129]); // Default USA
+  const [zoom, setZoom] = useState(4);
+  const [shouldFitBounds, setShouldFitBounds] = useState(true);
+  const [currentBounds, setCurrentBounds] = useState<{ north: number; south: number; east: number; west: number; zoom: number } | null>(null);
+  const [showBaseMap, setShowBaseMap] = useState(true);
+  const [leadPin, setLeadPin] = useState<[number, number] | null>(null);
+
+  // Polygon Drawing State
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
+  const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null);
+
+  // Polygon Division State
+  const [isDividing, setIsDividing] = useState(false);
+  const [dividingPolygonId, setDividingPolygonId] = useState<string | null>(null);
+  const [divisionLinePoints, setDivisionLinePoints] = useState<[number, number][]>([]);
+  const [showDivisionConfirm, setShowDivisionConfirm] = useState(false);
+  const [polygonsToName, setPolygonsToName] = useState<SavedPolygon[]>([]);
+
+  // Naming/Saving Modal State
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [newPolygonName, setNewPolygonName] = useState('');
+  const [newPolygonColor, setNewPolygonColor] = useState(COLORS[6]); // Default Blue
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; polygonId: string } | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingColorId, setEditingColorId] = useState<string | null>(null);
+  const [polygonFilter, setPolygonFilter] = useState('');
+
+  // Pre-loading Logic for State Centroids
+  const loadStateZips = async (stateCode: string) => {
+    const code = stateCode.toUpperCase();
+    if (loadedStates.has(code) || !STATES.includes(code)) return;
+
+    try {
+      const url = stateManifest[code];
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Failed to load zips for ${code}`);
+      const rawData: Record<string, { lat: number, lng: number, city: string }> = await response.json();
+      
+      // Convert object to array of ZipCodeData
+      const data: ZipCodeData[] = Object.entries(rawData).map(([zip, details]) => ({
+        zip,
+        lat: details.lat,
+        lng: details.lng,
+        city: details.city,
+        state: code
+      }));
+      
+      setActiveZips(prev => {
+        const existing = new Set(prev.map(z => z.zip));
+        const newUnique = data.filter(z => !existing.has(z.zip));
+        return [...prev, ...newUnique];
+      });
+      setLoadedStates(prev => new Set(prev).add(code));
+    } catch (error) {
+      console.error(`Error loading state zips for ${code}:`, error);
+    }
+  };
+
+  // Lead Search (Primary Discovery)
+  const handleLeadSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!initialZip) return;
+
+    setLoading(true);
+    setShouldFitBounds(true);
+    // Exit drawing mode if active
+    setIsDrawing(false);
+    setPolygonPoints([]);
+    setSelectedVertexIndex(null);
+
+    try {
+      // Use Nominatim for geocoding
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(initialZip)}&countrycodes=us&addressdetails=1`);
+      const data = await response.json();
+
+      if (data && data.length > 0) {
+        const result = data[0];
+        const lat = parseFloat(result.lat);
+        const lng = parseFloat(result.lon);
+        const state = result.address?.state_code || result.address?.state;
+        
+        setMapCenter([lat, lng]);
+        setZoom(13);
+        setLeadPin([lat, lng]);
+
+        // Pre-load state if it's one of the 12
+        if (state) {
+          const stateCode = state.length === 2 ? state : STATES.find(s => state.includes(s));
+          if (stateCode) loadStateZips(stateCode);
+        }
+      } else {
+        alert("Location not found. Please try a more specific address or zip code.");
+      }
+    } catch (error) {
+      console.error("Error geocoding address:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Zoom-based Pre-loading
+  useEffect(() => {
+    if (zoom >= 9 && currentBounds) {
+      const checkVisibleStates = async () => {
+        // Use Gemini to identify visible states from the 12 in the current bounds
+        // This is a simple way to handle the "determine state from visible area" requirement
+        try {
+          const { GoogleGenAI } = await import("@google/genai");
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: `Identify which of these US states are visible in the bounding box [North: ${currentBounds.north}, South: ${currentBounds.south}, East: ${currentBounds.east}, West: ${currentBounds.west}]: ${STATES.join(", ")}. Return only a comma-separated list of state abbreviations.`,
+          });
+          
+          const visibleStates = response.text.split(',').map(s => s.trim().toUpperCase()).filter(s => STATES.includes(s));
+          visibleStates.forEach(state => loadStateZips(state));
+        } catch (err) {
+          console.error("Error identifying visible states:", err);
+        }
+      };
+
+      const debounce = setTimeout(checkVisibleStates, 1000);
+      return () => clearTimeout(debounce);
+    }
+  }, [zoom, currentBounds]);
+
+  // Track Map Bounds
+  const handleMapChange = useCallback((bounds: { north: number; south: number; east: number; west: number; zoom: number }) => {
+    setCurrentBounds(bounds);
+    setZoom(bounds.zoom);
+    setShouldFitBounds(false);
+  }, []);
+
+  // Manual "Search This Area" Logic (Viewport)
+  const handleManualSearch = async () => {
+    if (!currentBounds) return;
+    setLoading(true);
+    setShouldFitBounds(false); 
+
+    // With the new architecture, manual search just ensures the current state is loaded
+    // and relies on activeZips being displayed if zoom >= 10.
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Identify the primary US state abbreviation for the center point [${(currentBounds.north + currentBounds.south) / 2}, ${(currentBounds.east + currentBounds.west) / 2}]. Return only the 2-letter abbreviation.`,
+      });
+      
+      const state = response.text.trim().toUpperCase();
+      if (STATES.includes(state)) {
+        await loadStateZips(state);
+      }
+    } catch (err) {
+      console.error("Error searching area", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 1. Open Modal to Save Polygon (No search yet)
+  const handleInitiateSave = () => {
+    if (polygonPoints.length < 3) return;
+    if (editingPolygon) {
+      setNewPolygonName(editingPolygon.name);
+      setNewPolygonColor(editingPolygon.color);
+    } else {
+      setNewPolygonName(`Area ${savedPolygons.length + 1}`);
+      setNewPolygonColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
+    }
+    setShowNameModal(true);
+  };
+
+  // 2. Actually Save the Polygon to State
+  const savePolygon = async () => {
+    if (!newPolygonName.trim()) return;
+    
+    // Optimized Point-in-Polygon loop using activeZips
+    const polyCoords = polygonPoints.map(p => [p[1], p[0]]);
+    if (polyCoords[0][0] !== polyCoords[polyCoords.length-1][0] || polyCoords[0][1] !== polyCoords[polyCoords.length-1][1]) {
+      polyCoords.push(polyCoords[0]);
+    }
+    const poly = turf.polygon([polyCoords]);
+    
+    // Performance: turf.booleanPointInPolygon is very fast. 
+    // Processing 1000+ zips should be well under 100ms.
+    const startTime = performance.now();
+    const containedZips = activeZips.filter(zipData => {
+      const pt = turf.point([zipData.lng, zipData.lat]);
+      return turf.booleanPointInPolygon(pt, poly);
+    }).map(z => z.zip);
+    const endTime = performance.now();
+    console.log(`PiP processing took ${endTime - startTime}ms for ${activeZips.length} zips.`);
+
+    const newPoly: SavedPolygon = {
+      id: editingPolygon ? editingPolygon.id : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: newPolygonName,
+      color: newPolygonColor,
+      points: [...polygonPoints],
+      zips: containedZips,
+      visible: true,
+      isSearched: true,
+      trades: editingPolygon ? editingPolygon.trades : [],
+      notes: editingPolygon ? editingPolygon.notes : ''
+    };
+    
+    setSavedPolygons(prev => [...prev, newPoly]);
+    
+    const polyId = newPoly.id;
+    const wasEditing = !!editingPolygon;
+    const oldPolyPoints = editingPolygon?.points;
+
+    // Cleanup
+    setEditingPolygon(null);
+    setPolygonPoints([]);
+    setSelectedVertexIndex(null);
+    setIsDrawing(false);
+    setShowNameModal(false);
+    setNewPolygonName('');
+
+    // Ask for search
+    if (wasEditing && window.confirm("Geometry updated. Would you like to search for new zip codes in the modified area?")) {
+      if (oldPolyPoints) {
+        handleSearchAddedArea(polyId, oldPolyPoints, newPoly.points, containedZips);
+      } else {
+        handleSearchSavedPolygon(polyId);
+      }
+    }
+  };
+
+  const discardPolygon = () => {
+    if (editingPolygon) {
+      setSavedPolygons(prev => [...prev, editingPolygon]);
+      setEditingPolygon(null);
+    }
+    setPolygonPoints([]);
+    setSelectedVertexIndex(null);
+    setIsDrawing(false);
+    setShowNameModal(false);
+    setNewPolygonName('');
+    setPolygonsToName([]);
+  };
+
+  // 3. Search logic for an existing saved polygon
+  const handleSearchSavedPolygon = async (id: string, e?: React.MouseEvent, points?: [number, number][]) => {
+    if (e) e.stopPropagation();
+    
+    const poly = savedPolygons.find(p => p.id === id);
+    const searchPoints = points || poly?.points;
+    if (!searchPoints) return;
+
+    setSearchingPolygonId(id);
+    setShouldFitBounds(false);
+
+    try {
+      const coords = searchPoints.map(p => [p[1], p[0]]);
+      if (coords[0][0] !== coords[coords.length-1][0] || coords[0][1] !== coords[coords.length-1][1]) {
+        coords.push(coords[0]);
+      }
+      const poly = turf.polygon([coords]);
+      
+      const foundZips = activeZips.filter(zipData => {
+        const pt = turf.point([zipData.lng, zipData.lat]);
+        return turf.booleanPointInPolygon(pt, poly);
+      });
+      const foundZipCodes = foundZips.map(z => z.zip);
+
+      // Update selected zips (auto-select found ones)
+      setSelectedZips(prev => {
+        const newSet = new Set(prev);
+        foundZipCodes.forEach(z => newSet.add(z));
+        return newSet;
+      });
+
+      // Update polygon state
+      setSavedPolygons(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, zips: foundZipCodes, isSearched: true };
+        }
+        return p;
+      }));
+
+    } catch (err) {
+      console.error("Error searching specific polygon", err);
+      alert("Failed to search area. Please try again.");
+    } finally {
+      setSearchingPolygonId(null);
+    }
+  };
+
+  const handleSearchAddedArea = async (id: string, oldPoints: [number, number][], newPoints: [number, number][], existingZips: string[]) => {
+    setSearchingPolygonId(id);
+    setShouldFitBounds(false);
+
+    try {
+      // 1. Calculate the added area (new - old)
+      const oldCoords = oldPoints.map(p => [p[1], p[0]]);
+      if (oldCoords[0][0] !== oldCoords[oldCoords.length-1][0] || oldCoords[0][1] !== oldCoords[oldCoords.length-1][1]) {
+        oldCoords.push(oldCoords[0]);
+      }
+      const oldPoly = turf.polygon([oldCoords]);
+
+      const newCoords = newPoints.map(p => [p[1], p[0]]);
+      if (newCoords[0][0] !== newCoords[newCoords.length-1][0] || newCoords[0][1] !== newCoords[newCoords.length-1][1]) {
+        newCoords.push(newCoords[0]);
+      }
+      const newPoly = turf.polygon([newCoords]);
+
+      const addedArea = turf.difference(turf.featureCollection([newPoly, oldPoly]));
+      
+      if (!addedArea) {
+        // No added area, just finish
+        setSearchingPolygonId(null);
+        return;
+      }
+
+      // 2. Search zips in the added area
+      let searchCoords: [number, number][] = [];
+      if (addedArea.geometry.type === 'Polygon') {
+        searchCoords = addedArea.geometry.coordinates[0].map((c: any) => [c[1], c[0]]);
+      } else if (addedArea.geometry.type === 'MultiPolygon') {
+        // Take the first ring of the first polygon
+        searchCoords = addedArea.geometry.coordinates[0][0].map((c: any) => [c[1], c[0]]);
+      } else {
+        // Fallback
+        handleSearchSavedPolygon(id, undefined, newPoints);
+        return;
+      }
+
+      const coords = searchCoords.map(pt => [pt[1], pt[0]]);
+      if (coords[0][0] !== coords[coords.length-1][0] || coords[0][1] !== coords[coords.length-1][1]) {
+        coords.push(coords[0]);
+      }
+      const poly = turf.polygon([coords]);
+
+      const foundZips = activeZips.filter(zipData => {
+        const pt = turf.point([zipData.lng, zipData.lat]);
+        return turf.booleanPointInPolygon(pt, poly);
+      });
+      const foundZipCodes = foundZips.map(z => z.zip);
+
+      // 3. Combine with existing
+      const combinedZipCodes = Array.from(new Set([...existingZips, ...foundZipCodes]));
+
+      // Update selected zips
+      setSelectedZips(prev => {
+        const newSet = new Set(prev);
+        foundZipCodes.forEach(z => newSet.add(z));
+        return newSet;
+      });
+
+      // Update polygon state
+      setSavedPolygons(prev => prev.map(p => {
+        if (p.id === id) {
+          return { ...p, zips: combinedZipCodes, isSearched: true };
+        }
+        return p;
+      }));
+
+    } catch (err) {
+      console.error("Error searching added area", err);
+      // Fallback to full search if difference fails
+      handleSearchSavedPolygon(id, undefined, newPoints);
+    } finally {
+      setSearchingPolygonId(null);
+    }
+  };
+
+  // --- Local Storage Actions ---
+
+  const handleSaveToLocalStorage = () => {
+    if (window.confirm("This will overwrite any previously saved map data in your browser. Continue?")) {
+      const state: SavedMapState = {
+        version: 1,
+        timestamp: Date.now(),
+        mapCenter,
+        zoom,
+        initialZip,
+        radius,
+        selectedZips: Array.from(selectedZips),
+        availableZips: activeZips,
+        savedPolygons
+      };
+      try {
+        localStorage.setItem('serviceAreaMapData', JSON.stringify(state));
+        alert('Map saved to browser storage!');
+      } catch (e) {
+        console.error('Failed to save map data', e);
+        alert('Failed to save map data. Storage might be full.');
+      }
+    }
+  };
+
+  const handleLoadFromLocalStorage = () => {
+    if (window.confirm("This will load the saved map and replace your current session. Continue?")) {
+      try {
+        const dataStr = localStorage.getItem('serviceAreaMapData');
+        if (!dataStr) {
+          alert('No saved map found in browser storage.');
+          return;
+        }
+        const state = JSON.parse(dataStr) as SavedMapState;
+        
+        // Restore state
+        setMapCenter(state.mapCenter);
+        setZoom(state.zoom);
+        setInitialZip(state.initialZip);
+        setRadius(state.radius);
+        setSelectedZips(new Set(state.selectedZips));
+        setActiveZips(state.availableZips || []);
+        setSavedPolygons(state.savedPolygons || []);
+        
+        // Don't auto-fit, respect saved view
+        setShouldFitBounds(false); 
+        // Force a small delay to ensure view updates if needed
+        setTimeout(() => {
+           setLoading(false); 
+        }, 100);
+        
+      } catch (e) {
+        console.error('Failed to load map data', e);
+        alert('Failed to parse saved map data.');
+      }
+    }
+  };
+
+  // --- Context Menu & Editing Actions ---
+
+  const handlePolygonContextMenu = useCallback((id: string, x: number, y: number) => {
+    // If drawing, ignore existing polygons context menu to avoid confusion
+    if (isDrawing) return;
+    setContextMenu({ x, y, polygonId: id });
+  }, [isDrawing]);
+
+  const handleEditPolygon = () => {
+    if (!contextMenu) return;
+    const polyToEdit = savedPolygons.find(p => p.id === contextMenu.polygonId);
+    if (polyToEdit) {
+      setEditingPolygon(polyToEdit);
+      // Remove from saved list
+      setSavedPolygons(prev => prev.filter(p => p.id !== contextMenu.polygonId));
+      // Set as current drawing
+      setPolygonPoints(polyToEdit.points);
+      setIsDrawing(true);
+      // We set isSearched to false implicitly because we are modifying geometry
+      
+      // Close info panel if open for this polygon
+      if (selectedInfoPolygonId === contextMenu.polygonId) {
+        setSelectedInfoPolygonId(null);
+      }
+    }
+    setContextMenu(null);
+  };
+
+  const handleDeletePolygon = () => {
+    if (!contextMenu) return;
+    setSavedPolygons(prev => prev.filter(p => p.id !== contextMenu.polygonId));
+    
+    // Close info panel if open for this polygon
+    if (selectedInfoPolygonId === contextMenu.polygonId) {
+      setSelectedInfoPolygonId(null);
+    }
+    
+    setContextMenu(null);
+  };
+
+  const handleRenameStart = () => {
+    if (!contextMenu) return;
+    setEditingNameId(contextMenu.polygonId);
+    setContextMenu(null);
+  };
+
+  const handleColorStart = () => {
+    if (!contextMenu) return;
+    setEditingColorId(contextMenu.polygonId);
+    setContextMenu(null);
+  };
+
+  const handleDivideStart = () => {
+    if (!contextMenu) return;
+    setDividingPolygonId(contextMenu.polygonId);
+    setIsDividing(true);
+    setDivisionLinePoints([]);
+    setContextMenu(null);
+    // Ensure we are not in drawing mode
+    setIsDrawing(false);
+    setPolygonPoints([]);
+  };
+
+  const cancelDivision = () => {
+    setIsDividing(false);
+    setDividingPolygonId(null);
+    setDivisionLinePoints([]);
+    setShowDivisionConfirm(false);
+  };
+
+  const confirmDivision = () => {
+    if (!dividingPolygonId || divisionLinePoints.length < 2) return;
+    
+    const polyToDivide = savedPolygons.find(p => p.id === dividingPolygonId);
+    if (!polyToDivide) return;
+
+    try {
+      // 1. Convert to Turf objects
+      const polyCoords = polyToDivide.points.map(p => [p[1], p[0]]);
+      if (polyCoords[0][0] !== polyCoords[polyCoords.length-1][0] || polyCoords[0][1] !== polyCoords[polyCoords.length-1][1]) {
+        polyCoords.push(polyCoords[0]);
+      }
+      const poly = turf.polygon([polyCoords]);
+      const line = turf.lineString(divisionLinePoints.map(p => [p[1], p[0]]));
+
+      // 2. Check if line starts and ends outside
+      const startPoint = turf.point([divisionLinePoints[0][1], divisionLinePoints[0][0]]);
+      const endPoint = turf.point([divisionLinePoints[divisionLinePoints.length - 1][1], divisionLinePoints[divisionLinePoints.length - 1][0]]);
+      
+      const startOutside = !turf.booleanPointInPolygon(startPoint, poly);
+      const endOutside = !turf.booleanPointInPolygon(endPoint, poly);
+
+      if (!startOutside || !endOutside) {
+        alert("The division line must start and end outside the polygon.");
+        return;
+      }
+
+      // 3. Perform the split
+      // We'll use a large "half-plane" polygon to intersect
+      const bbox = turf.bbox(poly);
+      const expand = 5; // Large enough expansion
+      
+      // Create a huge polygon that wraps around one side of the line
+      const lineCoords = divisionLinePoints.map(p => [p[1], p[0]]);
+      
+      // We need to find a point far away to one side of the line.
+      // A simple way is to take the first and last points and find a perpendicular vector.
+      const p1 = lineCoords[0];
+      const p2 = lineCoords[lineCoords.length - 1];
+      const dx = p2[0] - p1[0];
+      const dy = p2[1] - p1[1];
+      const length = Math.sqrt(dx*dx + dy*dy);
+      const ux = -dy / length;
+      const uy = dx / length;
+      
+      const farDist = 100; // Very far in degrees
+      const farPoint1 = [p2[0] + ux * farDist, p2[1] + uy * farDist];
+      const farPoint2 = [p1[0] + ux * farDist, p1[1] + uy * farDist];
+      
+      const halfPlane = turf.polygon([[...lineCoords, farPoint1, farPoint2, lineCoords[0]]]);
+      
+      const piece1 = turf.intersect(turf.featureCollection([poly, halfPlane]));
+      const piece2 = turf.difference(turf.featureCollection([poly, piece1]));
+
+      if (!piece1 || !piece2) {
+        alert("Could not divide polygon. Make sure the line fully crosses the polygon.");
+        return;
+      }
+
+      // 4. Create new polygon objects
+      const extractPoints = (feature: any): [number, number][] => {
+        if (!feature) return [];
+        const geom = feature.geometry;
+        let coords = geom.coordinates;
+        
+        // If MultiPolygon, take the first polygon
+        if (geom.type === 'MultiPolygon') {
+          coords = coords[0];
+        }
+        
+        // Take the exterior ring
+        const ring = coords[0];
+        return ring.map((c: any) => [c[1], c[0]] as [number, number]);
+      };
+
+      const newPoly1Points = extractPoints(piece1);
+      const newPoly2Points = extractPoints(piece2);
+
+      // Helper to find which active zips are in a set of points
+      const getContainedZips = (pts: [number, number][]) => {
+        if (pts.length < 3) return [];
+        const coords = pts.map(p => [p[1], p[0]]);
+        if (coords[0][0] !== coords[coords.length-1][0] || coords[0][1] !== coords[coords.length-1][1]) {
+          coords.push(coords[0]);
+        }
+        const p = turf.polygon([coords]);
+        return activeZips.filter(zipData => {
+          const pt = turf.point([zipData.lng, zipData.lat]);
+          return turf.booleanPointInPolygon(pt, p);
+        }).map(z => z.zip);
+      };
+
+      const newPoly1: SavedPolygon = {
+        id: `${Date.now()}-1-${Math.random().toString(36).substr(2, 9)}`,
+        name: `${polyToDivide.name} (Part A)`,
+        color: polyToDivide.color,
+        points: newPoly1Points,
+        zips: getContainedZips(newPoly1Points),
+        visible: true,
+        isSearched: false
+      };
+
+      const newPoly2: SavedPolygon = {
+        id: `${Date.now()}-2-${Math.random().toString(36).substr(2, 9)}`,
+        name: `${polyToDivide.name} (Part B)`,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        points: newPoly2Points,
+        zips: getContainedZips(newPoly2Points),
+        visible: true,
+        isSearched: false
+      };
+
+      // 5. Remove old, add new to a queue for naming
+      setSavedPolygons(prev => prev.filter(p => p.id !== dividingPolygonId));
+      setPolygonsToName([newPoly1, newPoly2]);
+
+      // Close info panel if open for the divided polygon
+      if (selectedInfoPolygonId === dividingPolygonId) {
+        setSelectedInfoPolygonId(null);
+      }
+      
+      // Cleanup division state
+      setIsDividing(false);
+      setDividingPolygonId(null);
+      setDivisionLinePoints([]);
+      setShowDivisionConfirm(false);
+
+    } catch (err) {
+      console.error("Division error:", err);
+      alert("An error occurred while dividing the polygon. Please try a simpler line.");
+    }
+  };
+
+  const handleSaveNextQueuedPolygon = () => {
+    if (polygonsToName.length === 0) return;
+    
+    const [current, ...remaining] = polygonsToName;
+    
+    // Update current with user choices from modal
+    const updated = {
+      ...current,
+      name: newPolygonName || current.name,
+      color: newPolygonColor || current.color
+    };
+
+    setSavedPolygons(prev => [...prev, updated]);
+    setPolygonsToName(remaining);
+    
+    // If more left, reset modal for next
+    if (remaining.length > 0) {
+      setNewPolygonName(remaining[0].name);
+      setNewPolygonColor(remaining[0].color);
+    } else {
+      setShowNameModal(false);
+    }
+  };
+
+  useEffect(() => {
+    if (polygonsToName.length > 0) {
+      setNewPolygonName(polygonsToName[0].name);
+      setNewPolygonColor(polygonsToName[0].color);
+      setShowNameModal(true);
+    }
+  }, [polygonsToName]);
+
+  const updatePolygonColor = (id: string, color: string) => {
+    setSavedPolygons(prev => prev.map(p => p.id === id ? { ...p, color } : p));
+    setEditingColorId(null);
+  };
+
+  const updatePolygonName = (id: string, name: string) => {
+    if (name.trim()) {
+      setSavedPolygons(prev => prev.map(p => p.id === id ? { ...p, name } : p));
+    }
+    setEditingNameId(null);
+  };
+
+  const togglePolygonVisibility = (id: string) => {
+    setSavedPolygons(prev => prev.map(p => p.id === id ? { ...p, visible: !p.visible } : p));
+  };
+
+  const togglePolygonSelection = (id: string) => {
+    setSelectedPolygonIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const handlePolygonClick = (id: string) => {
+    if (isDrawing || isDividing) return;
+    setSelectedInfoPolygonId(id);
+  };
+
+  const updatePolygonDetails = (id: string, updates: Partial<SavedPolygon>) => {
+    setSavedPolygons(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+  };
+
+  const handleMergePolygons = () => {
+    if (selectedPolygonIds.size < 2) return;
+
+    const polygonsToMerge = savedPolygons.filter(p => selectedPolygonIds.has(p.id));
+    if (polygonsToMerge.length < 2) return;
+
+    try {
+      // 1. Convert to Turf features
+      const features = polygonsToMerge.map(p => {
+        const coords = p.points.map(pt => [pt[1], pt[0]]);
+        // Ensure closed
+        if (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1]) {
+          coords.push(coords[0]);
+        }
+        return turf.polygon([coords]);
+      });
+
+      // 2. Perform Union
+      let mergedFeature = features[0];
+      for (let i = 1; i < features.length; i++) {
+        const union = turf.union(turf.featureCollection([mergedFeature, features[i]]));
+        if (union) {
+          mergedFeature = union as any;
+        }
+      }
+
+      // 3. Extract points from merged feature
+      const extractPoints = (feature: any): [number, number][] => {
+        if (!feature) return [];
+        const geom = feature.geometry;
+        let coords = geom.coordinates;
+        
+        // If MultiPolygon, take the first polygon (or handle multiple? for now first)
+        if (geom.type === 'MultiPolygon') {
+          coords = coords[0];
+        }
+        
+        // Take the exterior ring
+        const ring = coords[0];
+        return ring.map((c: any) => [c[1], c[0]] as [number, number]);
+      };
+
+      const mergedPoints = extractPoints(mergedFeature);
+      
+      // 4. Combine zips based on new boundary
+      const coords = mergedPoints.map(p => [p[1], p[0]]);
+      if (coords[0][0] !== coords[coords.length-1][0] || coords[0][1] !== coords[coords.length-1][1]) {
+        coords.push(coords[0]);
+      }
+      const poly = turf.polygon([coords]);
+      const containedZips = activeZips.filter(zipData => {
+        const pt = turf.point([zipData.lng, zipData.lat]);
+        return turf.booleanPointInPolygon(pt, poly);
+      }).map(z => z.zip);
+
+      // 5. Create new polygon
+      const newPoly: SavedPolygon = {
+        id: `${Date.now()}-merged-${Math.random().toString(36).substr(2, 9)}`,
+        name: `Merged Area (${polygonsToMerge.length})`,
+        color: polygonsToMerge[0].color,
+        points: mergedPoints,
+        zips: containedZips,
+        visible: true,
+        isSearched: polygonsToMerge.some(p => p.isSearched)
+      };
+
+    // 6. Update state
+    // We don't add to savedPolygons here because handleSaveNextQueuedPolygon will do it
+    setSavedPolygons(prev => prev.filter(p => !selectedPolygonIds.has(p.id)));
+    
+    // Close info panel if it was open for one of the merged polygons
+    if (selectedInfoPolygonId && selectedPolygonIds.has(selectedInfoPolygonId)) {
+      setSelectedInfoPolygonId(null);
+    }
+
+    setSelectedPolygonIds(new Set());
+    
+    // Prompt for name/color
+    setPolygonsToName([newPoly]);
+      
+    } catch (err) {
+      console.error("Merge error:", err);
+      alert("Failed to merge polygons. They might not be adjacent or have invalid geometry.");
+    }
+  };
+
+  // Vertex Editing
+  const handleVertexClick = useCallback((index: number) => {
+    if (isDrawing) {
+      setSelectedVertexIndex(index);
+    }
+  }, [isDrawing]);
+
+  const deleteSelectedVertex = () => {
+    if (selectedVertexIndex !== null && polygonPoints.length > 0) {
+      setPolygonPoints(prev => prev.filter((_, i) => i !== selectedVertexIndex));
+      setSelectedVertexIndex(null);
+    }
+  };
+
+  // Close context menu on map click
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
+
+  // --- End Context Menu Actions ---
+
+  const toggleZipSelection = useCallback((zip: string) => {
+    setSelectedZips(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(zip)) {
+        newSet.delete(zip);
+      } else {
+        newSet.add(zip);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const clearSelection = () => {
+    setSelectedZips(new Set());
+  };
+
+  const handleMapClick = useCallback((lat: number, lng: number) => {
+    if (isDrawing) {
+      setPolygonPoints(prev => [...prev, [lat, lng]]);
+      // Deselect vertex if clicking empty map space
+      setSelectedVertexIndex(null);
+    } else if (isDividing) {
+      setDivisionLinePoints(prev => {
+        const newPoints = [...prev, [lat, lng]];
+        // If we have at least 2 points, check if we should show confirm
+        if (newPoints.length >= 2) {
+          // We'll let the user click a "Divide?" button instead of auto-confirming
+          // but we can show the prompt once they have enough points.
+        }
+        return newPoints;
+      });
+    }
+  }, [isDrawing, isDividing]);
+
+  const handlePointUpdate = useCallback((index: number, lat: number, lng: number) => {
+    setPolygonPoints(prev => {
+      const newPoints = [...prev];
+      newPoints[index] = [lat, lng];
+      return newPoints;
+    });
+    // If moving a point, select it
+    setSelectedVertexIndex(index);
+  }, []);
+
+  const toggleDrawingMode = () => {
+    if (isDrawing) {
+      discardPolygon();
+    } else {
+      setIsDrawing(true);
+    }
+    setSelectedVertexIndex(null);
+  };
+
+  const selectedZipList = useMemo(() => {
+    return activeZips.filter(z => selectedZips.has(z.zip));
+  }, [activeZips, selectedZips]);
+
+  return (
+    <div className="relative h-screen w-screen overflow-hidden bg-gray-100">
+      {/* Mobile Header */}
+      <div className="md:hidden absolute top-0 left-0 right-0 h-16 bg-white border-b z-50 flex items-center justify-between px-4 shadow-sm">
+        <div className="flex items-center space-x-2">
+          <MapIcon className="text-blue-600" size={24} />
+          <h1 className="font-bold text-lg">Service Area Pro</h1>
+        </div>
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+      </div>
+
+      {/* Sidebar Overlay */}
+      <div 
+        className={`
+          absolute inset-y-0 left-0 z-40 w-80 bg-white border-r shadow-xl transition-transform duration-300 transform
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          h-full flex flex-col pt-16 md:pt-0
+        `}
+      >
+        <Sidebar 
+          initialZip={initialZip}
+          setInitialZip={setInitialZip}
+          radius={radius}
+          setRadius={setRadius}
+          onSearch={handleLeadSearch}
+          loading={loading && shouldFitBounds} 
+          selectedZipList={activeZips.filter(z => selectedZips.has(z.zip))}
+          onClear={clearSelection}
+          onExport={() => setIsExportOpen(true)}
+          toggleZipSelection={toggleZipSelection}
+          onSaveLocal={handleSaveToLocalStorage}
+          onLoadLocal={handleLoadFromLocalStorage}
+          savedPolygons={savedPolygons}
+          leadPin={leadPin}
+        />
+
+        {/* Sidebar Toggle Tab (Desktop) */}
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className={`
+            hidden md:flex absolute top-1/2 -translate-y-1/2 left-full w-6 h-12 bg-white border border-l-0 border-gray-200 rounded-r-lg shadow-md items-center justify-center text-gray-400 hover:text-blue-600 transition-all z-50
+          `}
+          title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+        >
+          {isSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
+      </div>
+
+      {/* Main Content Area (Map - Full Screen) */}
+      <div className="absolute inset-0 z-0 pt-16 md:pt-0">
+        <MapView 
+          center={mapCenter}
+          zoom={zoom}
+          showBaseMap={showBaseMap}
+          availableZips={activeZips}
+          selectedZips={selectedZips}
+          onZipClick={toggleZipSelection}
+          onMapChange={handleMapChange}
+          shouldFitBounds={shouldFitBounds}
+          isDrawing={isDrawing}
+          polygonPoints={polygonPoints}
+          savedPolygons={savedPolygons}
+          onMapClick={handleMapClick}
+          onPointUpdate={handlePointUpdate}
+          onPolygonContextMenu={handlePolygonContextMenu}
+          onVertexClick={handleVertexClick}
+          selectedVertexIndex={selectedVertexIndex}
+          isDividing={isDividing}
+          divisionLinePoints={divisionLinePoints}
+          dividingPolygonId={dividingPolygonId}
+          selectedPolygonIds={selectedPolygonIds}
+          onTogglePolygonSelection={toggleZipSelection}
+          onPolygonClick={handlePolygonClick}
+          leadPin={leadPin}
+        />
+
+        {/* Polygon Info Panel */}
+        {selectedInfoPolygonId && savedPolygons.find(p => p.id === selectedInfoPolygonId) && (
+          <PolygonInfoPanel 
+            polygon={savedPolygons.find(p => p.id === selectedInfoPolygonId)!}
+            onClose={() => setSelectedInfoPolygonId(null)}
+            onSave={updatePolygonDetails}
+          />
+        )}
+
+        {/* Global Loading Indicator (for manual/poly searches) */}
+        {loading && !shouldFitBounds && !searchingPolygonId && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[400]">
+              <div className="bg-white/90 backdrop-blur text-gray-800 px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 border border-gray-200 animate-in fade-in slide-in-from-top-4">
+                  <Loader2 className="animate-spin text-blue-600" size={16} />
+                  <span className="text-xs font-bold">Searching area...</span>
+              </div>
+            </div>
+        )}
+
+        {/* --- MODALS & MENUS --- */}
+
+        {/* Naming Modal */}
+        {showNameModal && (
+          <div className="absolute inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Save Service Area</h3>
+                <p className="text-sm text-gray-500 mb-4">Name your area and choose a color to identify it on the map.</p>
+                
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Area Name</label>
+                <input 
+                  type="text" 
+                  value={newPolygonName}
+                  onChange={(e) => setNewPolygonName(e.target.value)}
+                  placeholder="e.g. North Region"
+                  className="w-full px-4 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoFocus
+                />
+
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Area Color</label>
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {COLORS.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => setNewPolygonColor(color)}
+                      className={`w-8 h-8 rounded-full border-2 transition-transform ${newPolygonColor === color ? 'border-gray-800 scale-110' : 'border-transparent hover:scale-105'}`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+
+                <div className="flex space-x-3">
+                  <button onClick={discardPolygon} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Discard</button>
+                  <button 
+                    onClick={polygonsToName.length > 0 ? handleSaveNextQueuedPolygon : savePolygon} 
+                    className="flex-1 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded-lg shadow-lg"
+                  >
+                    {polygonsToName.length > 0 ? 'Save & Next' : 'Save Geometry'}
+                  </button>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* Rename Modal */}
+        {editingNameId && (
+          <div className="absolute inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Rename Area</h3>
+                <input 
+                  type="text" 
+                  defaultValue={savedPolygons.find(p => p.id === editingNameId)?.name}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') updatePolygonName(editingNameId, e.currentTarget.value);
+                  }}
+                  className="w-full px-4 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoFocus
+                  onBlur={(e) => updatePolygonName(editingNameId, e.target.value)}
+                />
+                <button onClick={() => setEditingNameId(null)} className="w-full py-2 text-gray-500 hover:text-gray-800 font-medium">Cancel</button>
+             </div>
+          </div>
+        )}
+
+        {/* Color Change Modal */}
+        {editingColorId && (
+          <div className="absolute inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Change Color</h3>
+                <div className="flex flex-wrap gap-2 mb-4 justify-center">
+                  {COLORS.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => updatePolygonColor(editingColorId, color)}
+                      className={`w-10 h-10 rounded-full border-2 transition-transform hover:scale-110`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+                <button onClick={() => setEditingColorId(null)} className="w-full py-2 text-gray-500 hover:text-gray-800 font-medium">Cancel</button>
+             </div>
+          </div>
+        )}
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <div 
+            className="absolute z-[600] bg-white rounded-lg shadow-xl border border-gray-100 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 origin-top-left"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+             <button onClick={handleEditPolygon} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+               <Edit2 size={14} className="mr-2" /> Edit Geometry
+             </button>
+             <button onClick={handleRenameStart} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+               <Type size={14} className="mr-2" /> Rename
+             </button>
+             <button onClick={handleColorStart} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+               <Palette size={14} className="mr-2" /> Change Color
+             </button>
+             <button onClick={handleDivideStart} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+               <Layers size={14} className="mr-2" /> Divide Area
+             </button>
+             <div className="h-px bg-gray-100 my-1"></div>
+             <button onClick={handleDeletePolygon} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
+               <Trash2 size={14} className="mr-2" /> Delete Area
+             </button>
+          </div>
+        )}
+
+        {/* Floating Actions Container (Bottom Center) */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[400] flex flex-col items-center space-y-3 pointer-events-none">
+           
+           {/* Polygon Controls */}
+           <div className="pointer-events-auto flex items-center space-x-2">
+              {isDrawing ? (
+                 <div className="flex items-center space-x-2 animate-in slide-in-from-bottom-4 fade-in">
+                    <button 
+                      onClick={toggleDrawingMode}
+                      className="bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95"
+                    >
+                      <XCircle size={16} />
+                      <span>Cancel</span>
+                    </button>
+                    {/* Delete Point Button (Visible if vertex selected) */}
+                    {selectedVertexIndex !== null && (
+                      <button 
+                        onClick={deleteSelectedVertex}
+                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95"
+                        title="Delete Selected Point"
+                      >
+                        <Trash2 size={16} />
+                        <span className="sr-only">Delete Point</span>
+                      </button>
+                    )}
+                    <button 
+                      onClick={handleInitiateSave}
+                      disabled={polygonPoints.length < 3}
+                      className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95"
+                    >
+                      <Save size={16} />
+                      <span>Save Area ({polygonPoints.length} pts)</span>
+                    </button>
+                 </div>
+              ) : isDividing ? (
+                <div className="flex items-center space-x-2 animate-in slide-in-from-bottom-4 fade-in">
+                   <button 
+                     onClick={cancelDivision}
+                     className="bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95"
+                   >
+                     <XCircle size={16} />
+                     <span>Cancel Division</span>
+                   </button>
+                   <button 
+                     onClick={confirmDivision}
+                     disabled={divisionLinePoints.length < 2}
+                     className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-6 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95"
+                   >
+                     <Layers size={16} />
+                     <span>Divide? ({divisionLinePoints.length} pts)</span>
+                   </button>
+                </div>
+              ) : (
+                /* Primary "Search This View" Button (Only if not drawing) */
+                 (!loading && currentBounds && currentBounds.zoom >= 10) && (
+                   <button 
+                      onClick={handleManualSearch}
+                      className="bg-white hover:bg-gray-50 text-blue-600 px-4 py-2.5 rounded-full shadow-lg border border-blue-100 font-bold text-sm flex items-center space-x-2 transition-all active:scale-95 animate-in fade-in slide-in-from-bottom-4"
+                   >
+                      <Search size={16} />
+                      <span>Search Visible Area</span>
+                   </button>
+                 )
+              )}
+           </div>
+
+           {/* Drawing Mode Toggle (Always visible if not loading) */}
+           {!loading && !isDrawing && (
+              <button 
+                onClick={toggleDrawingMode}
+                className="pointer-events-auto bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full shadow-lg font-medium text-xs flex items-center space-x-2 transition-all active:scale-95 opacity-90 hover:opacity-100"
+              >
+                <PenTool size={12} />
+                <span>Draw Custom Area</span>
+              </button>
+           )}
+           
+           {/* Hint text if drawing */}
+           {isDrawing && (
+             <div className="bg-white/80 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold text-gray-600 border border-gray-200 shadow-sm animate-in fade-in">
+                {selectedVertexIndex !== null 
+                  ? "Point selected. Drag to move or use trash icon to delete." 
+                  : "Click map to add points. Drag points to adjust."}
+             </div>
+           )}
+
+           {isDividing && (
+             <div className="bg-white/80 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold text-gray-600 border border-gray-200 shadow-sm animate-in fade-in">
+                Draw a line starting outside, crossing through, and ending outside the area to divide it.
+             </div>
+           )}
+        </div>
+        
+        {/* Unified Map Overlay Controls (Top Right) */}
+        <div className="absolute top-4 right-4 z-[400] flex flex-col space-y-2 pointer-events-none w-52">
+          
+          {/* Main Panel */}
+          <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg border border-gray-200 overflow-hidden pointer-events-auto">
+            {/* Header / Status */}
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+               <div className="flex items-center space-x-2">
+                  <Layers size={14} className="text-gray-500" />
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Layers</span>
+               </div>
+               <div className="flex items-center space-x-2">
+                 {selectedPolygonIds.size >= 2 && (
+                   <button 
+                     onClick={handleMergePolygons}
+                     className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 px-1.5 py-0.5 rounded transition-colors"
+                   >
+                     <Combine size={10} className="mr-1" /> Merge
+                   </button>
+                 )}
+                 <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                   {selectedZips.size} Selected
+                 </span>
+               </div>
+            </div>
+
+            <div className="p-2 space-y-2">
+               {/* Search/Filter Polygons */}
+               <div className="px-2 pb-2">
+                 <div className="relative">
+                   <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                   <input
+                     type="text"
+                     placeholder="Filter areas or trades..."
+                     value={polygonFilter}
+                     onChange={(e) => setPolygonFilter(e.target.value)}
+                     className="w-full pl-7 pr-2 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-[10px] focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                   />
+                 </div>
+               </div>
+
+               {/* Base Map Toggle */}
+               <button
+                 onClick={() => setShowBaseMap(!showBaseMap)}
+                 className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${showBaseMap ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100 text-gray-600'}`}
+               >
+                 <div className="flex items-center space-x-2">
+                   <MapIcon size={14} />
+                   <span>Base Map</span>
+                 </div>
+                 {showBaseMap ? <Eye size={14} /> : <EyeOff size={14} />}
+               </button>
+
+               {/* Saved Polygons List */}
+               {savedPolygons.length > 0 && (
+                 <div className="pt-2 border-t border-gray-100 flex flex-col space-y-1">
+                   <span className="px-2 text-[10px] font-bold text-gray-400 uppercase mb-1">Saved Areas</span>
+                   {savedPolygons
+                    .filter(p => {
+                      const search = polygonFilter.toLowerCase();
+                      if (!search) return true;
+                      const nameMatch = p.name.toLowerCase().includes(search);
+                      const tradeMatch = p.trades?.some(t => t.name.toLowerCase().includes(search));
+                      return nameMatch || tradeMatch;
+                    })
+                    .map(p => (
+                     <div 
+                       key={p.id} 
+                       className={`flex items-center justify-between text-xs group hover:bg-gray-50 rounded px-2 py-1.5 transition-colors ${selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : ''}`}
+                     >
+                       <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
+                         <div 
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             togglePolygonSelection(p.id);
+                           }}
+                           className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}
+                         >
+                           {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
+                         </div>
+                         <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
+                         <div className="flex flex-col truncate">
+                            <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
+                              {!p.isSearched && !searchingPolygonId && (
+                                  <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
+                              )}
+                            </div>
+                         </div>
+                       </div>
+                       
+                       <div className="flex items-center space-x-1">
+                         {/* Search Button (If not searched) */}
+                         {!p.isSearched && (
+                            <button
+                                onClick={(e) => handleSearchSavedPolygon(p.id, e)}
+                                disabled={!!searchingPolygonId}
+                                className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`}
+                                title="Search for zips in this area"
+                            >
+                                {searchingPolygonId === p.id ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                     <Search size={12} />
+                                )}
+                            </button>
+                         )}
+
+                         {/* Visibility Toggle */}
+                         <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePolygonVisibility(p.id);
+                            }}
+                            className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
+                            title="Toggle Visibility"
+                         >
+                            {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                         </button>
+                         
+                         {/* Context Menu Trigger */}
+                         <button
+                           className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             const rect = e.currentTarget.getBoundingClientRect();
+                             setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id });
+                           }}
+                         >
+                           <MoreVertical size={12} />
+                         </button>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {isExportOpen && (
+        <ExportModal 
+          selectedZips={Array.from(selectedZips)}
+          onClose={() => setIsExportOpen(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+export default App;
