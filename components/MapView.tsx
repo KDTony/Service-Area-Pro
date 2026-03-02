@@ -75,6 +75,7 @@ const MapView: React.FC<MapViewProps> = ({
 
   // View State
   const [currentZoom, setCurrentZoom] = useState(zoom);
+  const [currentBounds, setCurrentBounds] = useState<any>(null);
 
   // Update refs when props change
   useEffect(() => {
@@ -128,6 +129,7 @@ const MapView: React.FC<MapViewProps> = ({
     const handleMapEvent = () => {
       const z = map.getZoom();
       setCurrentZoom(z);
+      setCurrentBounds(map.getBounds());
 
       const bounds = map.getBounds();
       
@@ -420,7 +422,7 @@ const MapView: React.FC<MapViewProps> = ({
     if (!mapRef.current) return;
 
     const map = mapRef.current;
-    const bounds = map.getBounds();
+    const bounds = currentBounds || map.getBounds();
     const availableZipsSet = new Set(availableZips.map(z => z.zip));
     
     // Cleanup old markers and boundaries
@@ -550,7 +552,7 @@ const MapView: React.FC<MapViewProps> = ({
         initialLoadRef.current = false; 
     }
 
-  }, [availableZips, selectedZips, onZipClick, currentZoom, shouldFitBounds]); 
+  }, [availableZips, selectedZips, onZipClick, currentZoom, shouldFitBounds, currentBounds]); 
 
   // Reset initial load ref if fitBounds is requested
   useEffect(() => {
