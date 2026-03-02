@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { ZipCodeData, SavedPolygon } from '../types';
-import { analyzeServiceArea } from '../geminiService';
 
 interface SidebarProps {
   initialZip: string;
@@ -27,24 +26,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   selectedZipList, onClear, onExport, toggleZipSelection, onSaveLocal,
   onLoadLocal, savedPolygons, leadPin
 }) => {
-  const [analysis, setAnalysis] = useState<string>('');
-  const [analyzing, setAnalyzing] = useState(false);
-
-  useEffect(() => {
-    if (selectedZipList.length > 0) {
-      const fetchAnalysis = async () => {
-        setAnalyzing(true);
-        const res = await analyzeServiceArea(selectedZipList.map(z => z.zip));
-        setAnalysis(res);
-        setAnalyzing(false);
-      };
-      
-      const debounce = setTimeout(fetchAnalysis, 1000);
-      return () => clearTimeout(debounce);
-    } else {
-      setAnalysis('');
-    }
-  }, [selectedZipList]);
 
   return (
     <div className="flex flex-col h-full bg-white text-gray-800">
@@ -163,18 +144,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           <div className="mt-4 flex flex-col space-y-3 p-3 bg-blue-50 rounded-lg text-blue-800 text-xs">
-             <div className="flex items-start space-x-2">
-               <MousePointerClick size={16} className="mt-0.5 shrink-0" />
-               <p>
-                 Zoom in (Level 10+) and use the "Search This Area" button to find zip codes.
-               </p>
-             </div>
-             <div className="flex items-start space-x-2 pt-2 border-t border-blue-100">
-               <PenTool size={16} className="mt-0.5 shrink-0" />
-               <p>
-                 Use the "Draw Custom Area" tool on the map to define a specific polygon shape and find zip codes within it.
-               </p>
-             </div>
           </div>
         </div>
 
@@ -224,25 +193,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* AI Insights Card */}
-          {selectedZipList.length > 0 && (
-            <div className="mt-6 p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
-              <div className="flex items-center text-indigo-700">
-                <Info size={16} className="mr-2" />
-                <span className="text-xs font-bold uppercase tracking-wider">AI Insight</span>
-              </div>
-              {analyzing ? (
-                <div className="flex items-center space-x-2 text-indigo-400">
-                  <Loader2 size={14} className="animate-spin" />
-                  <span className="text-xs italic">Analyzing area...</span>
-                </div>
-              ) : (
-                <p className="text-xs text-indigo-900 leading-relaxed italic">
-                  "{analysis}"
-                </p>
-              )}
-            </div>
-          )}
+          
         </div>
       </div>
 

@@ -1,14 +1,13 @@
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, Play, ChevronLeft, ChevronRight, Combine, Briefcase, Star } from 'lucide-react';
+import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle } from 'lucide-react';
 import * as turf from '@turf/turf';
 import MapView from './components/MapView';
 import Sidebar from './components/Sidebar';
 import ExportModal from './components/ExportModal';
 import PolygonInfoPanel from './components/PolygonInfoPanel';
 import { ZipCodeData, SavedPolygon, SavedMapState } from './types';
-import { analyzeServiceArea } from './geminiService';
 import { STATES, stateManifest, COLORS } from './constants';
+import { STATE_BOUNDS } from './state_bounds';
 
 const App: React.FC = () => {
   const [initialZip, setInitialZip] = useState('');
@@ -68,7 +67,7 @@ const App: React.FC = () => {
       const url = stateManifest[code];
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Failed to load zips for ${code}`);
-      const rawData: Record<string, { lat: number, lng: number, city: string }> = await response.json();
+      const rawData: Record<string, { lat: number, lng: number, city: string, boundary?: [number, number][] }> = await response.json();
       
       // Convert object to array of ZipCodeData
       const data: ZipCodeData[] = Object.entries(rawData).map(([zip, details]) => ({
@@ -76,7 +75,8 @@ const App: React.FC = () => {
         lat: details.lat,
         lng: details.lng,
         city: details.city,
-        state: code
+        state: code,
+        boundary: details.boundary
       }));
       
       setActiveZips(prev => {
@@ -89,6 +89,30 @@ const App: React.FC = () => {
       console.error(`Error loading state zips for ${code}:`, error);
     }
   };
+
+  // Zoom-based Pre-loading
+  useEffect(() => {
+    if (zoom >= 10 && currentBounds) {
+        const checkVisibleStates = () => {
+            const visibleStates = Object.entries(STATE_BOUNDS).filter(([_, bounds]) => {
+                const [west, south, east, north] = bounds;
+                const stateBounds = { west, south, east, north };
+                const mapBounds = currentBounds;
+                return (
+                    stateBounds.east >= mapBounds.west &&
+                    stateBounds.west <= mapBounds.east &&
+                    stateBounds.south <= mapBounds.north &&
+                    stateBounds.north >= mapBounds.south
+                );
+            }).map(([state, _]) => state);
+
+            visibleStates.forEach(state => loadStateZips(state));
+        };
+
+        const debounce = setTimeout(checkVisibleStates, 500);
+        return () => clearTimeout(debounce);
+    }
+  }, [zoom, currentBounds]);
 
   // Lead Search (Primary Discovery)
   const handleLeadSearch = async (e: React.FormEvent) => {
@@ -117,11 +141,6 @@ const App: React.FC = () => {
         setZoom(13);
         setLeadPin([lat, lng]);
 
-        // Pre-load state if it's one of the 12
-        if (state) {
-          const stateCode = state.length === 2 ? state : STATES.find(s => state.includes(s));
-          if (stateCode) loadStateZips(stateCode);
-        }
       } else {
         alert("Location not found. Please try a more specific address or zip code.");
       }
@@ -132,65 +151,12 @@ const App: React.FC = () => {
     }
   };
 
-  // Zoom-based Pre-loading
-  useEffect(() => {
-    if (zoom >= 9 && currentBounds) {
-      const checkVisibleStates = async () => {
-        // Use Gemini to identify visible states from the 12 in the current bounds
-        // This is a simple way to handle the "determine state from visible area" requirement
-        try {
-          const { GoogleGenAI } = await import("@google/genai");
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Identify which of these US states are visible in the bounding box [North: ${currentBounds.north}, South: ${currentBounds.south}, East: ${currentBounds.east}, West: ${currentBounds.west}]: ${STATES.join(", ")}. Return only a comma-separated list of state abbreviations.`,
-          });
-          
-          const visibleStates = response.text.split(',').map(s => s.trim().toUpperCase()).filter(s => STATES.includes(s));
-          visibleStates.forEach(state => loadStateZips(state));
-        } catch (err) {
-          console.error("Error identifying visible states:", err);
-        }
-      };
-
-      const debounce = setTimeout(checkVisibleStates, 1000);
-      return () => clearTimeout(debounce);
-    }
-  }, [zoom, currentBounds]);
-
   // Track Map Bounds
   const handleMapChange = useCallback((bounds: { north: number; south: number; east: number; west: number; zoom: number }) => {
     setCurrentBounds(bounds);
     setZoom(bounds.zoom);
     setShouldFitBounds(false);
   }, []);
-
-  // Manual "Search This Area" Logic (Viewport)
-  const handleManualSearch = async () => {
-    if (!currentBounds) return;
-    setLoading(true);
-    setShouldFitBounds(false); 
-
-    // With the new architecture, manual search just ensures the current state is loaded
-    // and relies on activeZips being displayed if zoom >= 10.
-    try {
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Identify the primary US state abbreviation for the center point [${(currentBounds.north + currentBounds.south) / 2}, ${(currentBounds.east + currentBounds.west) / 2}]. Return only the 2-letter abbreviation.`,
-      });
-      
-      const state = response.text.trim().toUpperCase();
-      if (STATES.includes(state)) {
-        await loadStateZips(state);
-      }
-    } catch (err) {
-      console.error("Error searching area", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // 1. Open Modal to Save Polygon (No search yet)
   const handleInitiateSave = () => {
@@ -496,6 +462,17 @@ const App: React.FC = () => {
     }
     
     setContextMenu(null);
+  };
+
+  const handleSelectPolygonZips = (polygonId: string) => {
+    const poly = savedPolygons.find(p => p.id === polygonId);
+    if (poly) {
+        setSelectedZips(prev => {
+            const newSet = new Set(prev);
+            poly.zips.forEach(zip => newSet.add(zip));
+            return newSet;
+        });
+    }
   };
 
   const handleRenameStart = () => {
@@ -816,6 +793,20 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAddSelectedToZips = () => {
+    if (selectedPolygonIds.size === 0) return;
+
+    const zipsToAdd = new Set<string>();
+    savedPolygons.forEach(p => {
+      if (selectedPolygonIds.has(p.id)) {
+        p.zips.forEach(zip => zipsToAdd.add(zip));
+      }
+    });
+
+    setSelectedZips(prev => new Set([...prev, ...zipsToAdd]));
+    setSelectedPolygonIds(new Set()); // Deselect polygons after adding
+  };
+
   // Vertex Editing
   const handleVertexClick = useCallback((index: number) => {
     if (isDrawing) {
@@ -895,6 +886,56 @@ const App: React.FC = () => {
   const selectedZipList = useMemo(() => {
     return activeZips.filter(z => selectedZips.has(z.zip));
   }, [activeZips, selectedZips]);
+
+  const canMergePolygons = useMemo(() => {
+    if (selectedPolygonIds.size < 2) {
+      return false;
+    }
+
+    const selectedPolygons = savedPolygons.filter(p => selectedPolygonIds.has(p.id));
+    
+    // Create a map of polygon points for quick lookup
+    const polygonPointsMap = new Map<string, Set<string>>();
+    selectedPolygons.forEach(p => {
+      const pointsSet = new Set(p.points.map(pt => `${pt[0]},${pt[1]}`));
+      polygonPointsMap.set(p.id, pointsSet);
+    });
+
+    // Adjacency list for the graph of selected polygons
+    const adj = new Map<string, string[]>();
+    selectedPolygons.forEach(p => adj.set(p.id, []));
+
+    // Build the adjacency list by checking for shared vertices
+    for (let i = 0; i < selectedPolygons.length; i++) {
+      for (let j = i + 1; j < selectedPolygons.length; j++) {
+        const poly1 = selectedPolygons[i];
+        const poly2 = selectedPolygons[j];
+        const points1 = polygonPointsMap.get(poly1.id)!;
+        
+        for (const p2 of poly2.points) {
+          if (points1.has(`${p2[0]},${p2[1]}`)) {
+            adj.get(poly1.id)!.push(poly2.id);
+            adj.get(poly2.id)!.push(poly1.id);
+            break; // Found a shared point, they are adjacent
+          }
+        }
+      }
+    }
+
+    // Perform a graph traversal (DFS) to check for connectivity
+    const visited = new Set<string>();
+    const stack = [selectedPolygons[0].id];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (!visited.has(id)) {
+        visited.add(id);
+        adj.get(id)!.forEach(neighbor => stack.push(neighbor));
+      }
+    }
+
+    // If we visited all selected polygons, they are all connected
+    return visited.size === selectedPolygonIds.size;
+  }, [selectedPolygonIds, savedPolygons]);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-gray-100">
@@ -1087,6 +1128,9 @@ const App: React.FC = () => {
             style={{ top: contextMenu.y, left: contextMenu.x }}
             onClick={(e) => e.stopPropagation()}
           >
+             <button onClick={() => { if(contextMenu) handleSelectPolygonZips(contextMenu.polygonId); setContextMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+               <PlusCircle size={14} className="mr-2" /> Select All Zips
+             </button>
              <button onClick={handleEditPolygon} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
                <Edit2 size={14} className="mr-2" /> Edit Geometry
              </button>
@@ -1160,15 +1204,7 @@ const App: React.FC = () => {
                 </div>
               ) : (
                 /* Primary "Search This View" Button (Only if not drawing) */
-                 (!loading && currentBounds && currentBounds.zoom >= 10) && (
-                   <button 
-                      onClick={handleManualSearch}
-                      className="bg-white hover:bg-gray-50 text-blue-600 px-4 py-2.5 rounded-full shadow-lg border border-blue-100 font-bold text-sm flex items-center space-x-2 transition-all active:scale-95 animate-in fade-in slide-in-from-bottom-4"
-                   >
-                      <Search size={16} />
-                      <span>Search Visible Area</span>
-                   </button>
-                 )
+                 null
               )}
            </div>
 
@@ -1209,17 +1245,7 @@ const App: React.FC = () => {
                <div className="flex items-center space-x-2">
                   <Layers size={14} className="text-gray-500" />
                   <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Layers</span>
-               </div>
-               <div className="flex items-center space-x-2">
-                 {selectedPolygonIds.size >= 2 && (
-                   <button 
-                     onClick={handleMergePolygons}
-                     className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center bg-blue-50 px-1.5 py-0.5 rounded transition-colors"
-                   >
-                     <Combine size={10} className="mr-1" /> Merge
-                   </button>
-                 )}
-                 <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                  <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
                    {selectedZips.size} Selected
                  </span>
                </div>
@@ -1337,6 +1363,29 @@ const App: React.FC = () => {
                  </div>
                )}
             </div>
+
+            {/* Add Selected Polygons' Zips Button */}
+            {selectedPolygonIds.size > 0 && (
+              <button
+                onClick={handleAddSelectedToZips}
+                className="w-full py-2 text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 mt-2"
+              >
+                <PlusCircle size={16} />
+                <span>Add Selected To Zips</span>
+              </button>
+            )}
+
+
+            {/* Merge Polygons Button (Moved to bottom of Layers sidebar) */}
+            {canMergePolygons && (
+              <button 
+                onClick={handleMergePolygons}
+                className="w-full py-2 text-sm font-bold bg-gray-900 text-white hover:bg-black rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 mt-4"
+              >
+                <Combine size={16} />
+                <span>Merge Selected Areas</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -2,7 +2,7 @@
 export const STATES = ['AL', 'GA', 'TN', 'MS', 'FL', 'SC', 'NC', 'VA', 'MO', 'IL', 'MN', 'WI'];
 
 export const stateManifest: Record<string, string> = STATES.reduce((acc, state) => {
-  acc[state] = `https://raw.githubusercontent.com/KDTony/Service-Area-Pro/main/zipcode_data/centroids_${state.toLowerCase()}.json`;
+  acc[state] = `https://raw.githubusercontent.com/KDTony/Service-Area-Pro/main/zipcode_data/centroids_with_bounds_${state.toLowerCase()}.json`;
   return acc;
 }, {} as Record<string, string>);
 

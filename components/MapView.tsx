@@ -59,6 +59,7 @@ const MapView: React.FC<MapViewProps> = ({
   const mapRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<{ [key: string]: any }>({}); 
+  const zipBoundariesRef = useRef<any>(null);
   const leadPinRef = useRef<any>(null);
   const drawnLayerRef = useRef<any>(null); // For the polygon being drawn
   const divisionLayerRef = useRef<any>(null); // For the division line
@@ -99,11 +100,12 @@ const MapView: React.FC<MapViewProps> = ({
     }).setView(center, zoom);
 
     // Create custom panes to control layer order
+    map.createPane('zipBoundaryPane');
+    map.getPane('zipBoundaryPane').style.zIndex = 425; // Below polygons
     map.createPane('polygonPane');
-    map.getPane('polygonPane').style.zIndex = 450; // Polygons go here, behind dots but above tiles
-
+    map.getPane('polygonPane').style.zIndex = 450; // Polygons go here
     map.createPane('zipDotPane');
-    map.getPane('zipDotPane').style.zIndex = 500; // Zip dots go on top to be clickable
+    map.getPane('zipDotPane').style.zIndex = 500; // Zip dots go on top
 
     // Add Zoom Control
     L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -156,6 +158,7 @@ const MapView: React.FC<MapViewProps> = ({
 
     mapRef.current = map;
     savedPolygonsLayerRef.current = L.featureGroup().addTo(map);
+    zipBoundariesRef.current = L.featureGroup().addTo(map);
 
     return () => {
       if (mapRef.current) {
@@ -192,9 +195,6 @@ const MapView: React.FC<MapViewProps> = ({
             L.DomEvent.stopPropagation(e);
             if (isDrawingRef.current) return;
             
-            // If shift key or something? No, let's just toggle selection if onTogglePolygonSelection is there
-            // But user wants an info panel. 
-            // Let's say: if onPolygonClick is provided, call it.
             if (onPolygonClick) {
                 onPolygonClick(poly.id);
             } else if (onTogglePolygonSelection) {
@@ -205,7 +205,7 @@ const MapView: React.FC<MapViewProps> = ({
         // Right-click handler for context menu
         layer.on('contextmenu', (e: any) => {
             L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e); // Prevent browser context menu
+            L.DomEvent.preventDefault(e);
             if (onPolygonContextMenu) {
                 onPolygonContextMenu(poly.id, e.originalEvent.clientX, e.originalEvent.clientY);
             }
@@ -225,24 +225,20 @@ const MapView: React.FC<MapViewProps> = ({
   useEffect(() => {
     if (!mapRef.current) return;
 
-    // Clear existing drawn layer
     if (drawnLayerRef.current) {
       drawnLayerRef.current.remove();
       drawnLayerRef.current = null;
     }
 
     if (polygonPoints.length > 0) {
-      // Create a feature group for the drawing elements (lines + vertex markers)
       const group = L.featureGroup();
 
-      // Create the shape (Line or Polygon) - Keep dashed for editing state
       const polyLayer = polygonPoints.length > 2 
         ? L.polygon(polygonPoints, { color: '#ef4444', weight: 3, dashArray: '5, 10', fillColor: '#ef4444', fillOpacity: 0.1 })
         : L.polyline(polygonPoints, { color: '#ef4444', weight: 3, dashArray: '5, 10' });
       
       polyLayer.addTo(group);
 
-      // Add draggable markers for vertices
       polygonPoints.forEach((point, index) => {
         const isSelected = selectedVertexIndex === index;
 
@@ -254,22 +250,19 @@ const MapView: React.FC<MapViewProps> = ({
 
         const marker = L.marker(point, { 
           icon, 
-          draggable: isDrawing, // Allow dragging if in drawing mode
+          draggable: isDrawing,
           bubblingMouseEvents: false,
           zIndexOffset: isSelected ? 1000 : 0
         });
 
-        // Snapping Helper Function
         const snapToTarget = (latLng: any) => {
             if (!mapRef.current) return { pos: latLng, snapped: false };
             const map = mapRef.current;
             const mousePt = map.latLngToContainerPoint(latLng);
-            const THRESHOLD = 15; // px
-            
+            const THRESHOLD = 15;
             let closest = THRESHOLD;
             let snapPos = null;
             
-            // 1. Check saved polygons
             if (savedPolygons) {
               savedPolygons.forEach(poly => {
                   if (!poly.visible) return;
@@ -285,7 +278,6 @@ const MapView: React.FC<MapViewProps> = ({
               });
             }
             
-            // 2. Check current polygon (excluding self)
             polygonPoints.forEach((p, i) => {
                 if (i === index) return;
                 const ptLatLng = L.latLng(p[0], p[1]);
@@ -300,7 +292,6 @@ const MapView: React.FC<MapViewProps> = ({
             return snapPos ? { pos: snapPos, snapped: true } : { pos: latLng, snapped: false };
         };
 
-        // Real-time visual update during drag
         marker.on('drag', (e: any) => {
           const { pos, snapped } = snapToTarget(e.target.getLatLng());
           
@@ -316,7 +307,6 @@ const MapView: React.FC<MapViewProps> = ({
           polyLayer.setLatLngs(currentLatLngs);
         });
 
-        // Commit change on drag end
         marker.on('dragend', (e: any) => {
            const { pos } = snapToTarget(e.target.getLatLng());
            if (onPointUpdate) {
@@ -325,7 +315,6 @@ const MapView: React.FC<MapViewProps> = ({
            L.DomUtil.removeClass(e.target.getElement(), 'snapped-marker');
         });
 
-        // Handle vertex click for deletion
         marker.on('click', (e: any) => {
             L.DomEvent.stopPropagation(e);
             if (onVertexClick) {
@@ -355,7 +344,7 @@ const MapView: React.FC<MapViewProps> = ({
       const group = L.featureGroup();
       
       const line = L.polyline(divisionLinePoints, {
-        color: '#3b82f6', // Blue-500
+        color: '#3b82f6',
         weight: 4,
         dashArray: '10, 10',
         opacity: 0.8
@@ -363,7 +352,6 @@ const MapView: React.FC<MapViewProps> = ({
       
       line.addTo(group);
       
-      // Add points for the line
       divisionLinePoints.forEach((point) => {
         L.circleMarker(point, {
           radius: 4,
@@ -427,52 +415,49 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [leadPin]);
 
-  // Render Dots (CircleMarkers)
+  // Render Dots and Boundaries
   useEffect(() => {
     if (!mapRef.current) return;
 
+    const map = mapRef.current;
+    const bounds = map.getBounds();
     const availableZipsSet = new Set(availableZips.map(z => z.zip));
     
-    // Cleanup old markers
+    // Cleanup old markers and boundaries
     Object.keys(markersRef.current).forEach(zip => {
       if (!availableZipsSet.has(zip)) {
-        markersRef.current[zip].remove();
-        delete markersRef.current[zip];
+        if (markersRef.current[zip]) {
+            markersRef.current[zip].remove();
+            delete markersRef.current[zip];
+        }
       }
     });
+    if (zipBoundariesRef.current) {
+        zipBoundariesRef.current.clearLayers();
+    }
 
     const DOT_STYLES = {
-      selected: {
-        radius: 12,        
-        fillColor: '#2563eb', // Blue-600
-        color: '#ffffff',     
-        weight: 4,            
-        opacity: 1,
-        fillOpacity: 1
-      },
-      unselected: {
-        radius: 5,
-        fillColor: '#64748b', // Slate-500
-        color: '#ffffff',
-        weight: 1,
-        opacity: 0.8,
-        fillOpacity: 0.6
-      },
-      hover: {
-        radius: 12,          
-        fillColor: '#3b82f6',
-        fillOpacity: 0.9,
-        weight: 2
-      }
+      selected: { radius: 12, fillColor: '#2563eb', color: '#ffffff', weight: 4, opacity: 1, fillOpacity: 1 },
+      unselected: { radius: 5, fillColor: '#64748b', color: '#ffffff', weight: 1, opacity: 0.8, fillOpacity: 0.6 }
     };
 
+    const southWest = bounds.getSouthWest();
+    const northEast = bounds.getNorthEast();
+    const center = bounds.getCenter();
+    const latDiff = (northEast.lat - southWest.lat) * 0.25;
+    const lngDiff = (northEast.lng - southWest.lng) * 0.25;
+
+    const labelBounds = L.latLngBounds(
+        L.latLng(center.lat - latDiff, center.lng - lngDiff),
+        L.latLng(center.lat + latDiff, center.lng + lngDiff)
+    );
+
     availableZips.forEach(zipData => {
-      // Logic: Only show unselected dots if zoom >= 10. 
-      // Always show selected dots.
       const isSelected = selectedZips.has(zipData.zip);
       const isVisible = isSelected || currentZoom >= 10;
+      const latLng = L.latLng(zipData.lat, zipData.lng);
 
-      if (!isVisible) {
+      if (!isVisible || !bounds.contains(latLng)) {
         if (markersRef.current[zipData.zip]) {
           markersRef.current[zipData.zip].remove();
           delete markersRef.current[zipData.zip];
@@ -481,65 +466,70 @@ const MapView: React.FC<MapViewProps> = ({
       }
 
       const style = isSelected ? DOT_STYLES.selected : DOT_STYLES.unselected;
+      let marker = markersRef.current[zipData.zip];
 
-      if (markersRef.current[zipData.zip]) {
-        // Update existing marker style
-        markersRef.current[zipData.zip].setStyle(style);
-        markersRef.current[zipData.zip].setRadius(style.radius);
-        
-        if (isSelected) {
-          markersRef.current[zipData.zip].bringToFront();
-        }
+      if (marker) {
+        marker.setStyle(style).setRadius(style.radius);
+        if (isSelected) marker.bringToFront();
       } else {
-        // Create new marker
-        const marker = L.circleMarker([zipData.lat, zipData.lng], {
-          ...style,
-          className: 'zip-dot',
-          pane: 'zipDotPane'
-        })
-        .addTo(mapRef.current!)
+        marker = L.circleMarker(latLng, { ...style, className: 'zip-dot', pane: 'zipDotPane' })
+        .addTo(map)
         .on('click', (e: any) => {
           L.DomEvent.stopPropagation(e);
           if (isDrawingRef.current) return; 
-
           onZipClick(zipData.zip);
         })
         .on('mouseover', function (this: any) {
-          if (isDrawingRef.current) return;
-
-          const currentSelected = selectedZipsRef.current.has(zipData.zip);
-          if (!currentSelected) {
-            this.setStyle(DOT_STYLES.hover);
-            this.setRadius(DOT_STYLES.hover.radius);
-            this.bringToFront();
-          }
-          
-          this.bindTooltip(`
-            <div class="font-sans text-center">
-              <div class="text-sm font-bold text-gray-900">${zipData.zip}</div>
-              <div class="text-xs text-gray-600">${zipData.city}</div>
-            </div>
-          `, {
-            direction: 'top',
-            offset: [0, -10],
-            permanent: false,
-            className: 'map-tooltip',
-            opacity: 1
-          }).openTooltip();
+            this.bindTooltip(`
+                <div class="font-sans text-center">
+                <div class="text-sm font-bold text-gray-900">${zipData.zip}</div>
+                <div class="text-xs text-gray-600">${zipData.city}</div>
+                </div>
+            `, {
+                direction: 'top',
+                offset: [0, -10],
+                permanent: false,
+                className: 'map-tooltip'
+            }).openTooltip();
         })
         .on('mouseout', function (this: any) {
-          if (isDrawingRef.current) return;
-
-          const currentSelected = selectedZipsRef.current.has(zipData.zip);
-          const currentBaseStyle = currentSelected ? DOT_STYLES.selected : DOT_STYLES.unselected;
-          
-          this.setStyle(currentBaseStyle);
-          this.setRadius(currentBaseStyle.radius);
-          this.closeTooltip();
+            this.unbindTooltip();
         });
 
         markersRef.current[zipData.zip] = marker;
       }
+      
+      // Permanent Label Management
+      const shouldShowLabel = labelBounds.contains(latLng) && currentZoom >= 12;
+      if (shouldShowLabel) {
+        if (!marker.getTooltip() || !marker.getTooltip().options.permanent) {
+             marker.bindTooltip(zipData.zip, {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -style.radius],
+                className: 'zip-code-label',
+            }).openTooltip();
+        }
+      } else {
+         if (marker.getTooltip() && marker.getTooltip().options.permanent) {
+            marker.unbindTooltip();
+         }
+      }
+
+      // Boundary Rendering
+      if (currentZoom >= 11 && zipData.boundary && zipData.boundary.length > 2) {
+        const latLngBoundary = zipData.boundary.map(p => [p[1], p[0]] as [number, number]);
+        const boundaryLayer = L.polygon(latLngBoundary, {
+          color: '#38bdf8', // light-blue-400
+          weight: 1,
+          opacity: 0.7,
+          fill: false,
+          interactive: false, // Make it non-clickable
+          pane: 'zipBoundaryPane'
+        });
+        boundaryLayer.addTo(zipBoundariesRef.current);
+      }
+
     });
 
     if (availableZips.length > 0 && shouldFitBounds && initialLoadRef.current) {
@@ -594,6 +584,18 @@ const MapView: React.FC<MapViewProps> = ({
         }
         .polygon-label .leaflet-tooltip-tip {
            display: none;
+        }
+        .zip-code-label {
+          background: transparent;
+          border: none;
+          box-shadow: none;
+          color: black;
+          font-family: Arial, sans-serif;
+          font-weight: bold;
+          text-shadow: 0 0 2px white, 0 0 3px white;
+        }
+        .zip-code-label .leaflet-tooltip-tip {
+          display: none;
         }
         path.zip-dot {
           transition: fill 0.2s ease, r 0.2s ease, stroke-width 0.2s ease;
