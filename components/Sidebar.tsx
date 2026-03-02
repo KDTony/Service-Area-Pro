@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star } from 'lucide-react';
+import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { ZipCodeData, SavedPolygon } from '../types';
 
@@ -17,13 +17,15 @@ interface SidebarProps {
   toggleZipSelection: (zip: string) => void;
   onSaveLocal: () => void;
   onLoadLocal: () => void;
+  onExportFile: () => void;
+  onImportFile: () => void;
   savedPolygons: SavedPolygon[];
   leadPin: [number, number] | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   initialZip, setInitialZip, radius, setRadius, onSearch, loading,
-  selectedZipList, onClear, onExport, toggleZipSelection, onSaveLocal,
+  selectedZipList, onClear, onExport, toggleZipSelection, onSaveLocal, onExportFile, onImportFile,
   onLoadLocal, savedPolygons, leadPin
 }) => {
 
@@ -41,6 +43,20 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
         <div className="flex items-center space-x-2">
+          <button
+            onClick={onExportFile}
+            title="Export to File"
+            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+          >
+            <FileDown size={20} />
+          </button>
+          <button
+            onClick={onImportFile}
+            title="Import from File"
+            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+          >
+            <FileUp size={20} />
+          </button>
           <button 
             onClick={onSaveLocal}
             title="Save to Browser"

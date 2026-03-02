@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle } from 'lucide-react';
+import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle, FileDown, FileUp } from 'lucide-react';
 import * as turf from '@turf/turf';
 import MapView from './components/MapView';
 import Sidebar from './components/Sidebar';
@@ -408,7 +408,14 @@ const App: React.FC = () => {
         setRadius(state.radius);
         setSelectedZips(new Set(state.selectedZips));
         setActiveZips(state.availableZips || []);
-        setSavedPolygons(state.savedPolygons || []);
+        setSavedPolygons((state.savedPolygons || []).map(p => ({
+          ...p,
+          // Ensure defaults for older saved states
+          trades: p.trades || [],
+          notes: p.notes || '',
+          visible: p.visible !== false,
+          isSearched: !!p.isSearched,
+        })));
         
         // Don't auto-fit, respect saved view
         setShouldFitBounds(false); 
@@ -422,6 +429,66 @@ const App: React.FC = () => {
         alert('Failed to parse saved map data.');
       }
     }
+  };
+
+  const handleExportToFile = () => {
+    const state: SavedMapState = {
+      version: 1,
+      timestamp: Date.now(),
+      mapCenter,
+      zoom,
+      initialZip,
+      radius,
+      selectedZips: Array.from(selectedZips),
+      availableZips: activeZips,
+      savedPolygons
+    };
+
+    const jsonString = JSON.stringify(state, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `service-area-pro-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportFromFile = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const dataStr = event.target?.result as string;
+          if (!dataStr) throw new Error("File is empty.");
+          const state = JSON.parse(dataStr) as SavedMapState;
+
+          // Use the same loading logic as local storage
+          setMapCenter(state.mapCenter);
+          setZoom(state.zoom);
+          setInitialZip(state.initialZip);
+          setRadius(state.radius);
+          setSelectedZips(new Set(state.selectedZips));
+          setActiveZips(state.availableZips || []);
+          setSavedPolygons((state.savedPolygons || []).map(p => ({ ...p, trades: p.trades || [], notes: p.notes || '', visible: p.visible !== false, isSearched: !!p.isSearched })));
+          setShouldFitBounds(false);
+          alert('Map data loaded successfully from file.');
+        } catch (err) {
+          console.error('Failed to load map data from file', err);
+          alert('Failed to parse map data from file. The file may be corrupt.');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
   };
 
   // --- Context Menu & Editing Actions ---
@@ -974,6 +1041,8 @@ const App: React.FC = () => {
           toggleZipSelection={toggleZipSelection}
           onSaveLocal={handleSaveToLocalStorage}
           onLoadLocal={handleLoadFromLocalStorage}
+          onExportFile={handleExportToFile}
+          onImportFile={handleImportFromFile}
           savedPolygons={savedPolygons}
           leadPin={leadPin}
         />
