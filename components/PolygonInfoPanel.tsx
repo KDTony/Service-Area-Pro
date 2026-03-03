@@ -128,46 +128,57 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
 
                   {/* Reps */}
                   <div className="space-y-2">
-                    {trade.reps.map((rep) => (
-                      <div key={rep.id} className="bg-white rounded-lg p-2 border border-gray-100 flex flex-col space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center flex-1">
-                            <User size={12} className="text-gray-400 mr-2" />
+                    {trade.reps.map((rep) => {
+                      const priorityOptions = [1, 2, 3, 4, 5, 0]; // 0 represents "Alt"
+                      return (
+                        <div key={rep.id} className="bg-white rounded-lg p-2 border border-gray-100 flex flex-col space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center flex-1 min-w-0">
+                              <User size={12} className="text-gray-400 mr-2 shrink-0" />
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={rep.name}
+                                  onChange={(e) => handleUpdateRep(trade.id, rep.id, { name: e.target.value })}
+                                  placeholder="Rep Name"
+                                  className="text-xs border-b border-gray-100 focus:border-blue-500 outline-none w-full"
+                                />
+                              ) : (
+                                <span className="text-xs font-medium text-gray-700 truncate">{rep.name || 'Unnamed Rep'}</span>
+                              )}
+                            </div>
                             {isEditing ? (
-                              <input
-                                type="text"
-                                value={rep.name}
-                                onChange={(e) => handleUpdateRep(trade.id, rep.id, { name: e.target.value })}
-                                placeholder="Rep Name"
-                                className="text-xs border-b border-gray-100 focus:border-blue-500 outline-none w-full"
-                              />
+                              <button onClick={() => handleRemoveRep(trade.id, rep.id)} className="text-gray-300 hover:text-red-500 ml-2">
+                                <X size={12} />
+                              </button>
                             ) : (
-                              <span className="text-xs font-medium text-gray-700">{rep.name || 'Unnamed Rep'}</span>
+                              <div className="text-xs font-bold text-gray-500 ml-2">
+                                {rep.priority > 0 ? `x${rep.priority}` : 'Alt'}
+                              </div>
                             )}
                           </div>
                           {isEditing && (
-                            <button onClick={() => handleRemoveRep(trade.id, rep.id)} className="text-gray-300 hover:text-red-500">
-                              <X size={12} />
-                            </button>
+                            <div className="flex items-center justify-between pt-1 border-t border-gray-100">
+                              <div className="flex items-center space-x-1">
+                                {priorityOptions.map((p) => (
+                                  <button
+                                    key={p}
+                                    onClick={() => handleUpdateRep(trade.id, rep.id, { priority: p })}
+                                    className={`
+                                      w-6 h-6 rounded-md text-[10px] font-bold transition-colors
+                                      ${rep.priority === p ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}
+                                    `}
+                                  >
+                                    {p === 0 ? 'Alt' : p}
+                                  </button>
+                                ))}
+                              </div>
+                              <span className="text-[10px] font-bold text-gray-400">Priority</span>
+                            </div>
                           )}
                         </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-1">
-                            {[1, 2, 3, 4, 5].map((p) => (
-                              <button
-                                key={p}
-                                disabled={!isEditing}
-                                onClick={() => handleUpdateRep(trade.id, rep.id, { priority: p })}
-                                className={`p-0.5 rounded transition-colors ${rep.priority >= p ? 'text-amber-400' : 'text-gray-200'}`}
-                              >
-                                <Star size={10} fill={rep.priority >= p ? 'currentColor' : 'none'} />
-                              </button>
-                            ))}
-                          </div>
-                          <span className="text-[10px] font-bold text-gray-400">Priority {rep.priority}</span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {isEditing && (
                       <button onClick={() => handleAddRep(trade.id)} className="w-full py-1.5 border-2 border-dashed border-gray-200 rounded-lg text-[10px] font-bold text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-all">
                         + Add Sales Rep

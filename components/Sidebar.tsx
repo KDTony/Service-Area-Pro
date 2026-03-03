@@ -141,10 +141,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 .map(rep => (
                                   <div key={rep.id} className="flex items-center justify-between bg-gray-50 px-2 py-1 rounded text-[11px]">
                                     <span className="text-gray-700 font-medium">{rep.name}</span>
-                                    <div className="flex items-center space-x-0.5 text-amber-400">
-                                      <Star size={8} fill="currentColor" />
-                                      <span className="font-bold text-[9px]">{rep.priority}</span>
-                                    </div>
+                                   <div className="text-[10px] font-bold text-gray-500 ml-2">
+                                     {rep.priority > 0 ? `x${rep.priority}` : 'Alt'}
+                                   </div>
                                   </div>
                                 ))}
                             </div>
