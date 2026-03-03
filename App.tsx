@@ -1084,6 +1084,7 @@ const App: React.FC = () => {
           selectedPolygonIds={selectedPolygonIds}
           onTogglePolygonSelection={toggleZipSelection}
           onPolygonClick={handlePolygonClick}
+          selectedInfoPolygonId={selectedInfoPolygonId}
           leadPin={leadPin}
         />
 
@@ -1362,7 +1363,11 @@ const App: React.FC = () => {
                     .map(p => (
                      <div 
                        key={p.id} 
-                       className={`flex items-center justify-between text-xs group hover:bg-gray-50 rounded px-2 py-1.5 transition-colors ${selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : ''}`}
+                       onClick={() => handlePolygonClick(p.id)}
+                       className={`
+                         flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer
+                         ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}
+                       `}
                      >
                        <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
                          <div 

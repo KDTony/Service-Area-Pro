@@ -28,6 +28,7 @@ interface MapViewProps {
   selectedPolygonIds?: Set<string>;
   onTogglePolygonSelection?: (id: string) => void;
   onPolygonClick?: (id: string) => void;
+  selectedInfoPolygonId?: string | null;
   leadPin?: [number, number] | null;
 }
 
@@ -54,6 +55,7 @@ const MapView: React.FC<MapViewProps> = ({
   selectedPolygonIds = new Set(),
   onTogglePolygonSelection,
   onPolygonClick,
+  selectedInfoPolygonId = null,
   leadPin = null
 }) => {
   const mapRef = useRef<any>(null);
@@ -181,13 +183,14 @@ const MapView: React.FC<MapViewProps> = ({
 
         const isBeingDivided = dividingPolygonId === poly.id;
         const isSelected = selectedPolygonIds.has(poly.id);
+        const isActive = selectedInfoPolygonId === poly.id;
 
         const layer = L.polygon(poly.points, {
-            color: isBeingDivided ? '#3b82f6' : (isSelected ? '#2563eb' : poly.color), 
-            weight: (isBeingDivided || isSelected) ? 4 : 2,
+            color: isActive ? '#0f172a' : (isBeingDivided ? '#3b82f6' : (isSelected ? '#2563eb' : poly.color)), 
+            weight: isActive ? 5 : (isBeingDivided || isSelected) ? 4 : 2,
             opacity: 1, // Solid line
             fillColor: poly.color,
-            fillOpacity: isBeingDivided ? 0.4 : (isSelected ? 0.5 : 0.2), 
+            fillOpacity: isActive ? 0.5 : (isBeingDivided ? 0.4 : (isSelected ? 0.4 : 0.2)),
             dashArray: isBeingDivided ? '5, 5' : null,
             pane: 'polygonPane'
         });
@@ -221,7 +224,7 @@ const MapView: React.FC<MapViewProps> = ({
 
         layer.addTo(savedPolygonsLayerRef.current);
     });
-  }, [savedPolygons, onPolygonContextMenu]);
+  }, [savedPolygons, onPolygonContextMenu, dividingPolygonId, selectedPolygonIds, selectedInfoPolygonId]);
 
   // Handle Drawing Layer (Dashed style, Red, Draggable Vertices)
   useEffect(() => {
