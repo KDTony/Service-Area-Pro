@@ -194,7 +194,7 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
         {/* Notes Section */}
         <div className="space-y-2">
           <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center">
-            <FileText size={12} className="mr-1" /> Polygon Notes
+            <FileText size={12} className="mr-1" /> Service Area Notes
           </h4>
           {isEditing ? (
             <textarea

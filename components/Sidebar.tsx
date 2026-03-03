@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp, HardDrive } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { ZipCodeData, SavedPolygon } from '../types';
 
@@ -29,6 +29,22 @@ const Sidebar: React.FC<SidebarProps> = ({
   onLoadLocal, savedPolygons, leadPin
 }) => {
 
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (saveMenuRef.current && !saveMenuRef.current.contains(event.target as Node)) {
+        setIsSaveMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-full bg-white text-gray-800">
       {/* Brand Header */}
@@ -42,35 +58,32 @@ const Sidebar: React.FC<SidebarProps> = ({
             <p className="text-xs text-gray-500 font-medium">Map & Data Utility</p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="relative" ref={saveMenuRef}>
           <button
-            onClick={onExportFile}
-            title="Export to File"
-            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+            onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)}
+            title="Save/Load Options"
+            className={`p-2 rounded-full transition-colors ${isSaveMenuOpen ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'}`}
           >
-            <FileDown size={20} />
+            <HardDrive size={20} />
           </button>
-          <button
-            onClick={onImportFile}
-            title="Import from File"
-            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-          >
-            <FileUp size={20} />
-          </button>
-          <button 
-            onClick={onSaveLocal}
-            title="Save to Browser"
-            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-          >
-            <UploadCloud size={20} />
-          </button>
-          <button 
-            onClick={onLoadLocal}
-            title="Load from Browser"
-            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-          >
-            <DownloadCloud size={20} />
-          </button>
+
+          {isSaveMenuOpen && (
+            <div className="absolute top-full right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 py-1 z-10 animate-in fade-in zoom-in-95 duration-100 origin-top-right">
+              <button onClick={() => { onSaveLocal(); setIsSaveMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                <UploadCloud size={14} className="mr-2" /> Save to Browser
+              </button>
+              <button onClick={() => { onLoadLocal(); setIsSaveMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                <DownloadCloud size={14} className="mr-2" /> Load from Browser
+              </button>
+              <div className="h-px bg-gray-100 my-1"></div>
+              <button onClick={() => { onExportFile(); setIsSaveMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                <FileDown size={14} className="mr-2" /> Export to File
+              </button>
+              <button onClick={() => { onImportFile(); setIsSaveMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                <FileUp size={14} className="mr-2" /> Import from File
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
