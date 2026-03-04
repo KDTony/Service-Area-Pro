@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle, FileDown, FileUp, Building, Building2, Dot, SquareDashedBottom } from 'lucide-react';
 import * as turf from '@turf/turf';
+import packageJson from './package.json';
 import MapView from './components/MapView';
 import Sidebar from './components/Sidebar';
 import ExportModal from './components/ExportModal';
@@ -8,6 +9,14 @@ import PolygonInfoPanel from './components/PolygonInfoPanel';
 import { ZipCodeData, SavedPolygon, SavedMapState, Brand, Office } from './types';
 import { STATES, stateManifest, COLORS } from './constants';
 import { STATE_BOUNDS } from './state_bounds';
+
+interface StrictSavedMapData {
+  app_version: string;
+  brands: Brand[];
+  offices: Office[];
+  savedPolygons: SavedPolygon[];
+  selectedZips: string[];
+}
 
 const App: React.FC = () => {
   // New state for hierarchy
@@ -135,7 +144,7 @@ const App: React.FC = () => {
   }, [zoom, currentBounds]);
 
   // Lead Search (Primary Discovery)
-  const handleLeadSearch = async (e: React.FormEvent) => {
+  const handleLeadSearch = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!initialZip) return;
 
@@ -343,7 +352,7 @@ const App: React.FC = () => {
       const addedArea = turf.difference(turf.featureCollection([newPoly, oldPoly]));
       
       if (!addedArea) {
-        // No added area, just finish
+        // No added area, just finish. This can happen if the new polygon is smaller than the old one.
         setSearchingPolygonId(null);
         return;
       }
@@ -440,18 +449,18 @@ const App: React.FC = () => {
         setZoom(state.zoom);
         setInitialZip(state.initialZip);
         setRadius(state.radius);
-        setSelectedZips(new Set(state.selectedZips));
+        setSelectedZips(new Set(state.selectedZips as string[]));
         setActiveZips(state.availableZips || []);
-        setSavedPolygons((state.savedPolygons || []).map(p => ({
-          brandId: null,
-          officeId: null,
-          ...p,
+        setSavedPolygons((state.savedPolygons || []).map(p => {
+          const defaults = { trades: [], notes: '', isSearched: false };
+          return {
+            ...defaults,
+            ...p,
           // Ensure defaults for older saved states
-          trades: p.trades || [],
-          notes: p.notes || '',
           visible: p.visible !== false,
-          isSearched: !!p.isSearched,
-        })));
+          brandId: p.brandId || null,
+          officeId: p.officeId || null,
+        }}));
         setBrands(state.brands ?? []);
         setOffices(state.offices ?? []);
         
@@ -470,18 +479,13 @@ const App: React.FC = () => {
   };
 
   const handleExportToFile = () => {
-    const state: SavedMapState = {
-      version: 1,
-      timestamp: Date.now(),
-      mapCenter,
-      zoom,
-      initialZip,
-      radius,
+    // Use a strict data schema for export, excluding UI state.
+    const state: StrictSavedMapData = {
+      app_version: packageJson.version,
+      brands,
+      offices,
+      savedPolygons,
       selectedZips: Array.from(selectedZips),
-      availableZips: activeZips,
-        savedPolygons,
-        brands,
-        offices
     };
 
     const jsonString = JSON.stringify(state, null, 2);
@@ -489,7 +493,7 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `service-area-pro-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `service-area-pro-data-${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -497,28 +501,40 @@ const App: React.FC = () => {
   };
 
   const handleImportFromFile = () => {
+    if (!window.confirm("This will load data from a file and merge it with your current session. This can't be undone. Continue?")) {
+      return;
+    }
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = (e) => {
+    input.onchange = (e: Event) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
           const dataStr = event.target?.result as string;
           if (!dataStr) throw new Error("File is empty.");
-          const state = JSON.parse(dataStr) as SavedMapState;
+          const data = JSON.parse(dataStr);
 
-          // Use the same loading logic as local storage
-          setMapCenter(state.mapCenter);
-          setZoom(state.zoom);
-          setInitialZip(state.initialZip);
-          setRadius(state.radius);
-          setSelectedZips(new Set(state.selectedZips));
-          setActiveZips(state.availableZips || []);
-          setSavedPolygons((state.savedPolygons || []).map(p => ({ brandId: null, officeId: null, ...p, trades: p.trades || [], notes: p.notes || '', visible: p.visible !== false, isSearched: !!p.isSearched })));
+          // Hydrate data instead of overwriting the whole state
+          const state = data as StrictSavedMapData;
+          if (!state.app_version || !state.savedPolygons || !state.brands || !state.offices) {
+            throw new Error("Invalid data format. The file does not appear to be a valid Service Area Pro data file.");
+          }
+
+          setSelectedZips(new Set(state.selectedZips as string[]));
+          setSavedPolygons((state.savedPolygons || []).map(p => {
+            // Default values first
+            const defaults = { trades: [], notes: '', visible: true, isSearched: false, brandId: null, officeId: null };
+            return {
+              ...defaults,
+              ...p, // Spread saved data, which will overwrite defaults
+              visible: p.visible !== false, // Ensure 'visible' is a boolean
+            };
+          }));
           setBrands(state.brands ?? []);
           setOffices(state.offices ?? []);
           setShouldFitBounds(false);
@@ -565,7 +581,7 @@ const App: React.FC = () => {
     setLoading(true);
     try {
       const address = `${newOfficeDetails.street}, ${newOfficeDetails.city}, ${newOfficeDetails.state} ${newOfficeDetails.zip}`;
-      const params = new URLSearchParams({
+      const params = new URLSearchParams({ // eslint-disable-line
         address: address,
         key: apiKey,
       });
@@ -729,10 +745,14 @@ const App: React.FC = () => {
       
       const halfPlane = turf.polygon([[...lineCoords, farPoint1, farPoint2, lineCoords[0]]]);
       
-      const piece1 = turf.intersect(turf.featureCollection([poly, halfPlane]));
-      const piece2 = turf.difference(turf.featureCollection([poly, piece1]));
+      const piece1Feature = turf.intersect(turf.featureCollection([poly, halfPlane]));
+      if (!piece1Feature) {
+        alert("Could not divide polygon. Make sure the line fully crosses the polygon.");
+        return;
+      }
+      const piece2 = turf.difference(turf.featureCollection([poly, piece1Feature]));
 
-      if (!piece1 || !piece2) {
+      if (!piece2) {
         alert("Could not divide polygon. Make sure the line fully crosses the polygon.");
         return;
       }
@@ -753,7 +773,7 @@ const App: React.FC = () => {
         return ring.map((c: any) => [c[1], c[0]] as [number, number]);
       };
 
-      const newPoly1Points = extractPoints(piece1);
+      const newPoly1Points = extractPoints(piece1Feature);
       const newPoly2Points = extractPoints(piece2);
 
       // Helper to find which active zips are in a set of points
@@ -818,7 +838,7 @@ const App: React.FC = () => {
   const handleSaveNextQueuedPolygon = () => {
     if (polygonsToName.length === 0) return;
     
-    const [current, ...remaining] = polygonsToName;
+    const [current, ...remaining] = polygonsToName as [SavedPolygon, ...SavedPolygon[]];
     
     // Update current with user choices from modal
     const updated = {
@@ -863,7 +883,7 @@ const App: React.FC = () => {
     setSavedPolygons(prev => prev.map(p => p.id === id ? { ...p, visible: !p.visible } : p));
   };
 
-  const togglePolygonSelection = (id: string) => {
+  const togglePolygonSelection = (id: string, e?: React.MouseEvent) => {
     setSelectedPolygonIds(prev => {
       const newSet = new Set(prev);
       if (newSet.has(id)) {
@@ -873,6 +893,9 @@ const App: React.FC = () => {
       }
       return newSet;
     });
+    if (e) {
+      e.stopPropagation();
+    }
   };
 
   const handlePolygonClick = (id: string) => {
@@ -1027,12 +1050,12 @@ const App: React.FC = () => {
 
   const handleMapClick = useCallback((lat: number, lng: number) => {
     if (isDrawing) {
-      setPolygonPoints(prev => [...prev, [lat, lng]]);
+      setPolygonPoints(prev => [...prev, [lat, lng] as [number, number]]);
       // Deselect vertex if clicking empty map space
       setSelectedVertexIndex(null);
     } else if (isDividing) {
       setDivisionLinePoints(prev => {
-        const newPoints = [...prev, [lat, lng]];
+        const newPoints = [...prev, [lat, lng] as [number, number]];
         // If we have at least 2 points, check if we should show confirm
         if (newPoints.length >= 2) {
           // We'll let the user click a "Divide?" button instead of auto-confirming
@@ -1342,7 +1365,7 @@ const App: React.FC = () => {
                 <input 
                   type="text" 
                   defaultValue={savedPolygons.find(p => p.id === editingNameId)?.name}
-                  onKeyDown={(e) => {
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                     if (e.key === 'Enter') updatePolygonName(editingNameId, e.currentTarget.value);
                   }}
                   className="w-full px-4 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -1489,7 +1512,7 @@ const App: React.FC = () => {
         </div>
         
         {/* Unified Map Overlay Controls (Top Right) */}
-        <div className="absolute top-4 right-4 z-[400] flex flex-col space-y-2 pointer-events-none w-52">
+        <div className="absolute top-4 right-4 z-[400] flex flex-col space-y-2 pointer-events-none w-72">
           
           {/* Main Panel */}
           <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg border border-gray-200 overflow-hidden pointer-events-auto">
@@ -1555,94 +1578,6 @@ const App: React.FC = () => {
                  {showZipBoundaries ? <Eye size={14} /> : <EyeOff size={14} />}
                </button>
 
-               {/* Saved Polygons List */}
-               {savedPolygons.length > 0 && (
-                 <div className="pt-2 border-t border-gray-100 flex flex-col space-y-1">
-                   <span className="px-2 text-[10px] font-bold text-gray-400 uppercase mb-1">Saved Areas</span>
-                   {savedPolygons
-                    .filter(p => {
-                      const search = polygonFilter.toLowerCase();
-                      if (!search) return true;
-                      const nameMatch = p.name.toLowerCase().includes(search);
-                      const tradeMatch = p.trades?.some(t => t.name.toLowerCase().includes(search));
-                      return nameMatch || tradeMatch;
-                    })
-                    .map(p => (
-                     <div 
-                       key={p.id} 
-                       onClick={() => handlePolygonClick(p.id)}
-                       className={`
-                         flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer
-                         ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}
-                       `}
-                     >
-                       <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
-                         <div 
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             togglePolygonSelection(p.id);
-                           }}
-                           className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}
-                         >
-                           {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
-                         </div>
-                         <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
-                         <div className="flex flex-col truncate">
-                            <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
-                            <div className="flex items-center space-x-1.5">
-                              <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
-                              {!p.isSearched && !searchingPolygonId && (
-                                  <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
-                              )}
-                            </div>
-                         </div>
-                       </div>
-                       
-                       <div className="flex items-center space-x-1">
-                         {/* Search Button (If not searched) */}
-                         {!p.isSearched && (
-                            <button
-                                onClick={(e) => handleSearchSavedPolygon(p.id, e)}
-                                disabled={!!searchingPolygonId}
-                                className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`}
-                                title="Search for zips in this area"
-                            >
-                                {searchingPolygonId === p.id ? (
-                                    <Loader2 size={12} className="animate-spin" />
-                                ) : (
-                                     <Search size={12} />
-                                )}
-                            </button>
-                         )}
-
-                         {/* Visibility Toggle */}
-                         <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              togglePolygonVisibility(p.id);
-                            }}
-                            className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
-                            title="Toggle Visibility"
-                         >
-                            {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-                         </button>
-                         
-                         {/* Context Menu Trigger */}
-                         <button
-                           className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             const rect = e.currentTarget.getBoundingClientRect();
-                             setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id });
-                           }}
-                         >
-                           <MoreVertical size={12} />
-                         </button>
-                       </div>
-                     </div>
-                   ))}
-                 </div>
-               )}
             </div>
 
             {/* Add Selected Polygons' Zips Button */}
@@ -1683,12 +1618,59 @@ const App: React.FC = () => {
               <div className="text-xs">
                 <div className="font-bold px-2 py-1 text-gray-500">Unassigned</div>
                 <div className="pl-4">
-                  {savedPolygons.filter(p => !p.officeId).map(p => (
-                    <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center text-xs group rounded px-2 py-1 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
-                      <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
-                      <span className="truncate font-medium">{p.name}</span>
-                    </div>
-                  ))}
+                  {savedPolygons
+                    .filter(p => !p.officeId && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
+                    .map(p => (
+                      <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
+                        <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
+                          <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
+                            {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
+                          </div>
+                          <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
+                          <div className="flex flex-col truncate">
+                            <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
+                              {!p.isSearched && !searchingPolygonId && (
+                                <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          {!p.isSearched && (
+                            <button
+                              onClick={(e) => handleSearchSavedPolygon(p.id, e)}
+                              disabled={!!searchingPolygonId}
+                              className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`}
+                              title="Search for zips in this area"
+                            >
+                              {searchingPolygonId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePolygonVisibility(p.id);
+                            }}
+                            className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
+                            title="Toggle Visibility"
+                          >
+                            {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                          </button>
+                          <button
+                            className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id });
+                            }}
+                          >
+                            <MoreVertical size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                 </div>
               </div>
 
@@ -1712,12 +1694,59 @@ const App: React.FC = () => {
                           {office.name}
                         </div>
                         <div className="pl-4">
-                          {savedPolygons.filter(p => p.officeId === office.id).map(p => (
-                            <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center text-xs group rounded px-2 py-1 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
-                              <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
-                              <span className="truncate font-medium">{p.name}</span>
-                            </div>
-                          ))}
+                          {savedPolygons
+                            .filter(p => p.officeId === office.id && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
+                            .map(p => (
+                              <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
+                                <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
+                                  <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
+                                    {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
+                                  </div>
+                                  <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
+                                  <div className="flex flex-col truncate">
+                                    <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
+                                      {!p.isSearched && !searchingPolygonId && (
+                                        <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-1">
+                                  {!p.isSearched && (
+                                    <button
+                                      onClick={(e) => handleSearchSavedPolygon(p.id, e)}
+                                      disabled={!!searchingPolygonId}
+                                      className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`}
+                                      title="Search for zips in this area"
+                                    >
+                                      {searchingPolygonId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      togglePolygonVisibility(p.id);
+                                    }}
+                                    className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
+                                    title="Toggle Visibility"
+                                  >
+                                    {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                                  </button>
+                                  <button
+                                    className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id });
+                                    }}
+                                  >
+                                    <MoreVertical size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                         </div>
                       </div>
                     ))}
