@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ZipCodeData, SavedPolygon } from '../types';
+import { ZipCodeData, SavedPolygon, Office } from '../types';
 import { GripHorizontal } from 'lucide-react';
 
 declare const L: any;
@@ -14,6 +14,9 @@ interface MapViewProps {
   onZipClick: (zip: string) => void;
   onMapChange?: (bounds: { north: number; south: number; east: number; west: number; zoom: number }) => void;
   shouldFitBounds?: boolean;
+  showServiceAreas: boolean;
+  showZipDots: boolean;
+  showZipBoundaries: boolean;
   isDrawing: boolean;
   polygonPoints: [number, number][];
   savedPolygons?: SavedPolygon[];
@@ -28,6 +31,7 @@ interface MapViewProps {
   selectedPolygonIds?: Set<string>;
   onTogglePolygonSelection?: (id: string) => void;
   onPolygonClick?: (id: string) => void;
+  offices?: Office[];
   selectedInfoPolygonId?: string | null;
   leadPin?: [number, number] | null;
 }
@@ -39,6 +43,9 @@ const MapView: React.FC<MapViewProps> = ({
   availableZips, 
   selectedZips, 
   onZipClick, 
+  showServiceAreas,
+  showZipDots,
+  showZipBoundaries,
   onMapChange,
   shouldFitBounds = true,
   isDrawing,
@@ -55,12 +62,14 @@ const MapView: React.FC<MapViewProps> = ({
   selectedPolygonIds = new Set(),
   onTogglePolygonSelection,
   onPolygonClick,
+  offices = [],
   selectedInfoPolygonId = null,
   leadPin = null
 }) => {
   const mapRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<{ [key: string]: any }>({}); 
+  const officePinsRef = useRef<any>(null);
   const zipBoundariesRef = useRef<any>(null);
   const leadPinRef = useRef<any>(null);
   const drawnLayerRef = useRef<any>(null); // For the polygon being drawn
@@ -163,6 +172,7 @@ const MapView: React.FC<MapViewProps> = ({
     mapRef.current = map;
     savedPolygonsLayerRef.current = L.featureGroup().addTo(map);
     zipBoundariesRef.current = L.featureGroup().addTo(map);
+    officePinsRef.current = L.featureGroup().addTo(map);
 
     return () => {
       if (mapRef.current) {
@@ -178,7 +188,7 @@ const MapView: React.FC<MapViewProps> = ({
 
     savedPolygonsLayerRef.current.clearLayers();
 
-    savedPolygons.forEach(poly => {
+    if (showServiceAreas) savedPolygons.forEach(poly => {
         if (!poly.visible) return; // Skip invisible polygons
 
         const isBeingDivided = dividingPolygonId === poly.id;
@@ -224,7 +234,7 @@ const MapView: React.FC<MapViewProps> = ({
 
         layer.addTo(savedPolygonsLayerRef.current);
     });
-  }, [savedPolygons, onPolygonContextMenu, dividingPolygonId, selectedPolygonIds, selectedInfoPolygonId]);
+  }, [savedPolygons, onPolygonContextMenu, dividingPolygonId, selectedPolygonIds, selectedInfoPolygonId, showServiceAreas]);
 
   // Handle Drawing Layer (Dashed style, Red, Draggable Vertices)
   useEffect(() => {
@@ -420,6 +430,32 @@ const MapView: React.FC<MapViewProps> = ({
     }
   }, [leadPin]);
 
+  // Handle Office Pins
+  useEffect(() => {
+    if (!mapRef.current || !officePinsRef.current) return;
+
+    officePinsRef.current.clearLayers();
+
+    offices.forEach(office => {
+      const icon = L.divIcon({
+        className: 'office-pin-marker',
+        html: `<div class="w-6 h-6 bg-gray-800 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+               </div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 24]
+      });
+
+      L.marker([office.lat, office.lng], { icon })
+        .addTo(officePinsRef.current)
+        .bindTooltip(office.name, {
+          permanent: true,
+          direction: 'top',
+          className: 'polygon-label'
+        });
+    });
+  }, [offices]);
+
   // Render Dots and Boundaries
   useEffect(() => {
     if (!mapRef.current) return;
@@ -459,7 +495,7 @@ const MapView: React.FC<MapViewProps> = ({
 
     availableZips.forEach(zipData => {
       const isSelected = selectedZips.has(zipData.zip);
-      const isVisible = isSelected || currentZoom >= 10;
+      const isVisible = showZipDots && (isSelected || currentZoom >= 10); // Only check showZipDots for dots
       const latLng = L.latLng(zipData.lat, zipData.lng);
 
       if (!isVisible || !bounds.contains(latLng)) {
@@ -522,7 +558,7 @@ const MapView: React.FC<MapViewProps> = ({
       }
 
       // Boundary Rendering
-      if (currentZoom >= 11 && zipData.boundary && zipData.boundary.length > 2) {
+      if (showZipBoundaries && currentZoom >= 11 && zipData.boundary && zipData.boundary.length > 2) { // Only check showZipBoundaries for boundaries
         const latLngBoundary = zipData.boundary.map(p => [p[1], p[0]] as [number, number]);
         const boundaryLayer = L.polygon(latLngBoundary, {
           color: '#38bdf8', // light-blue-400
@@ -555,7 +591,7 @@ const MapView: React.FC<MapViewProps> = ({
         initialLoadRef.current = false; 
     }
 
-  }, [availableZips, selectedZips, onZipClick, currentZoom, shouldFitBounds, currentBounds]); 
+  }, [availableZips, selectedZips, onZipClick, currentZoom, shouldFitBounds, currentBounds, showZipDots, showZipBoundaries]); 
 
   // Reset initial load ref if fitBounds is requested
   useEffect(() => {
@@ -630,6 +666,12 @@ const MapView: React.FC<MapViewProps> = ({
         }
         .vertex-marker:active {
           cursor: grabbing;
+        }
+        .office-pin-marker .polygon-label {
+          font-size: 12px;
+          color: #1f2937;
+          font-weight: 900;
+          text-shadow: 0 0 5px white, 0 0 3px white, 0 0 1px white;
         }
       `}</style>
       

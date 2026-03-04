@@ -1,15 +1,30 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle, FileDown, FileUp } from 'lucide-react';
+import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle, FileDown, FileUp, Building, Building2, Dot, SquareDashedBottom } from 'lucide-react';
 import * as turf from '@turf/turf';
 import MapView from './components/MapView';
 import Sidebar from './components/Sidebar';
 import ExportModal from './components/ExportModal';
 import PolygonInfoPanel from './components/PolygonInfoPanel';
-import { ZipCodeData, SavedPolygon, SavedMapState } from './types';
+import { ZipCodeData, SavedPolygon, SavedMapState, Brand, Office } from './types';
 import { STATES, stateManifest, COLORS } from './constants';
 import { STATE_BOUNDS } from './state_bounds';
 
 const App: React.FC = () => {
+  // New state for hierarchy
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
+  const [showAddBrandModal, setShowAddBrandModal] = useState(false);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [showAddOfficeModal, setShowAddOfficeModal] = useState(false);
+  const [addingOfficeToBrandId, setAddingOfficeToBrandId] = useState<string | null>(null);
+  const [newOfficeDetails, setNewOfficeDetails] = useState({
+    name: '',
+    street: '',
+    city: '',
+    state: '',
+    zip: '',
+  });
+  const apiKey = import.meta.env.VITE_GOOGLE_API_KEY as string;
   const [initialZip, setInitialZip] = useState('');
   const [radius, setRadius] = useState(10);
   const [loading, setLoading] = useState(false);
@@ -31,6 +46,11 @@ const App: React.FC = () => {
   const [mapCenter, setMapCenter] = useState<[number, number]>([37.0902, -95.7129]); // Default USA
   const [zoom, setZoom] = useState(4);
   const [shouldFitBounds, setShouldFitBounds] = useState(true);
+  // New visibility toggles
+  const [showServiceAreas, setShowServiceAreas] = useState(true);
+  const [showZipDots, setShowZipDots] = useState(true);
+  const [showZipBoundaries, setShowZipBoundaries] = useState(true);
+
   const [currentBounds, setCurrentBounds] = useState<{ north: number; south: number; east: number; west: number; zoom: number } | null>(null);
   const [showBaseMap, setShowBaseMap] = useState(true);
   const [leadPin, setLeadPin] = useState<[number, number] | null>(null);
@@ -126,26 +146,38 @@ const App: React.FC = () => {
     setPolygonPoints([]);
     setSelectedVertexIndex(null);
 
+    if (!apiKey) {
+      alert('Google Geocoding API key is not set. Please create a .env.local file with VITE_GOOGLE_API_KEY.');
+      setLoading(false);
+      return;
+    }
+
     try {
-      // Use Nominatim for geocoding
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(initialZip)}&countrycodes=us&addressdetails=1`);
+      const params = new URLSearchParams({
+        address: initialZip,
+        key: apiKey,
+      });
+      const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`);
       const data = await response.json();
 
-      if (data && data.length > 0) {
-        const result = data[0];
-        const lat = parseFloat(result.lat);
-        const lng = parseFloat(result.lon);
-        const state = result.address?.state_code || result.address?.state;
+      if (data.status === 'OK' && data.results.length > 0) {
+        const { lat, lng } = data.results[0].geometry.location;
         
         setMapCenter([lat, lng]);
         setZoom(13);
         setLeadPin([lat, lng]);
 
+        // This is the key to moving the map. We need to tell the map component
+        // that it should programmatically fit the new bounds, then immediately
+        // turn it off so the user can pan and zoom freely afterwards.
+        setShouldFitBounds(true);
+        setTimeout(() => setShouldFitBounds(false), 100);
       } else {
-        alert("Location not found. Please try a more specific address or zip code.");
+        alert("Location not found. Please check the address and try again.");
       }
     } catch (error) {
       console.error("Error geocoding address:", error);
+      alert("An error occurred while searching for the location.");
     } finally {
       setLoading(false);
     }
@@ -197,6 +229,8 @@ const App: React.FC = () => {
       name: newPolygonName,
       color: newPolygonColor,
       points: [...polygonPoints],
+      brandId: null,
+      officeId: null,
       zips: containedZips,
       visible: true,
       isSearched: true,
@@ -409,6 +443,8 @@ const App: React.FC = () => {
         setSelectedZips(new Set(state.selectedZips));
         setActiveZips(state.availableZips || []);
         setSavedPolygons((state.savedPolygons || []).map(p => ({
+          brandId: null,
+          officeId: null,
           ...p,
           // Ensure defaults for older saved states
           trades: p.trades || [],
@@ -416,6 +452,8 @@ const App: React.FC = () => {
           visible: p.visible !== false,
           isSearched: !!p.isSearched,
         })));
+        setBrands(state.brands ?? []);
+        setOffices(state.offices ?? []);
         
         // Don't auto-fit, respect saved view
         setShouldFitBounds(false); 
@@ -441,7 +479,9 @@ const App: React.FC = () => {
       radius,
       selectedZips: Array.from(selectedZips),
       availableZips: activeZips,
-      savedPolygons
+        savedPolygons,
+        brands,
+        offices
     };
 
     const jsonString = JSON.stringify(state, null, 2);
@@ -478,7 +518,9 @@ const App: React.FC = () => {
           setRadius(state.radius);
           setSelectedZips(new Set(state.selectedZips));
           setActiveZips(state.availableZips || []);
-          setSavedPolygons((state.savedPolygons || []).map(p => ({ ...p, trades: p.trades || [], notes: p.notes || '', visible: p.visible !== false, isSearched: !!p.isSearched })));
+          setSavedPolygons((state.savedPolygons || []).map(p => ({ brandId: null, officeId: null, ...p, trades: p.trades || [], notes: p.notes || '', visible: p.visible !== false, isSearched: !!p.isSearched })));
+          setBrands(state.brands ?? []);
+          setOffices(state.offices ?? []);
           setShouldFitBounds(false);
           alert('Map data loaded successfully from file.');
         } catch (err) {
@@ -489,6 +531,70 @@ const App: React.FC = () => {
       reader.readAsText(file);
     };
     input.click();
+  };
+
+  const handleAddBrand = () => {
+    if (!newBrandName.trim()) return;
+    const newBrand: Brand = {
+        id: `${Date.now()}-brand-${Math.random()}`,
+        name: newBrandName.trim()
+    };
+    setBrands(prev => [...prev, newBrand]);
+    setShowAddBrandModal(false);
+    setNewBrandName('');
+  };
+
+  const handleOpenAddOfficeModal = (brandId: string) => {
+    setAddingOfficeToBrandId(brandId);
+    setShowAddOfficeModal(true);
+  };
+
+  const handleAddOffice = async () => {
+    if (!newOfficeDetails.name.trim() || !addingOfficeToBrandId) return;
+
+    if (!newOfficeDetails.street || !newOfficeDetails.city || !newOfficeDetails.state || !newOfficeDetails.zip) {
+      alert("Please fill out the full address for the office.");
+      return;
+    }
+
+    if (!apiKey) {
+      alert('Google Geocoding API key is not set. Please create a .env.local file with VITE_GOOGLE_API_KEY.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const address = `${newOfficeDetails.street}, ${newOfficeDetails.city}, ${newOfficeDetails.state} ${newOfficeDetails.zip}`;
+      const params = new URLSearchParams({
+        address: address,
+        key: apiKey,
+      });
+      const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`);
+      const data = await response.json();
+
+      if (data.status === 'OK' && data.results.length > 0) {
+        const { lat, lng } = data.results[0].geometry.location;
+
+        const newOffice: Office = {
+          id: `${Date.now()}-office-${Math.random()}`,
+          brandId: addingOfficeToBrandId,
+          name: newOfficeDetails.name.trim(),
+          address: { ...newOfficeDetails },
+          lat: lat,
+          lng: lng,
+        };
+        setOffices(prev => [...prev, newOffice]);
+        setShowAddOfficeModal(false);
+        setNewOfficeDetails({ name: '', street: '', city: '', state: '', zip: '' });
+      } else {
+        alert("Could not find coordinates for the provided address. Please check the address and try again.");
+      }
+    } catch (error) {
+      console.error("Error geocoding office address:", error);
+      alert("An error occurred while trying to locate the office address.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // --- Context Menu & Editing Actions ---
@@ -669,6 +775,8 @@ const App: React.FC = () => {
         name: `${polyToDivide.name} (Part A)`,
         color: polyToDivide.color,
         points: newPoly1Points,
+        brandId: polyToDivide.brandId,
+        officeId: polyToDivide.officeId,
         zips: getContainedZips(newPoly1Points),
         visible: true,
         isSearched: false
@@ -679,6 +787,8 @@ const App: React.FC = () => {
         name: `${polyToDivide.name} (Part B)`,
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
         points: newPoly2Points,
+        brandId: polyToDivide.brandId,
+        officeId: polyToDivide.officeId,
         zips: getContainedZips(newPoly2Points),
         visible: true,
         isSearched: false
@@ -835,6 +945,8 @@ const App: React.FC = () => {
         name: `Merged Area (${polygonsToMerge.length})`,
         color: polygonsToMerge[0].color,
         points: mergedPoints,
+        brandId: polygonsToMerge[0].brandId, // Inherit from first
+        officeId: polygonsToMerge[0].officeId, // Inherit from first
         zips: containedZips,
         visible: true,
         isSearched: polygonsToMerge.some(p => p.isSearched)
@@ -1078,6 +1190,9 @@ const App: React.FC = () => {
           onPolygonContextMenu={handlePolygonContextMenu}
           onVertexClick={handleVertexClick}
           selectedVertexIndex={selectedVertexIndex}
+          showServiceAreas={showServiceAreas}
+          showZipDots={showZipDots}
+          showZipBoundaries={showZipBoundaries}
           isDividing={isDividing}
           divisionLinePoints={divisionLinePoints}
           dividingPolygonId={dividingPolygonId}
@@ -1085,6 +1200,7 @@ const App: React.FC = () => {
           onTogglePolygonSelection={toggleZipSelection}
           onPolygonClick={handlePolygonClick}
           selectedInfoPolygonId={selectedInfoPolygonId}
+          offices={offices}
           leadPin={leadPin}
         />
 
@@ -1094,7 +1210,74 @@ const App: React.FC = () => {
             polygon={savedPolygons.find(p => p.id === selectedInfoPolygonId)!}
             onClose={() => setSelectedInfoPolygonId(null)}
             onSave={updatePolygonDetails}
+            brands={brands}
+            offices={offices}
           />
+        )}
+
+        {/* Add Brand Modal */}
+        {showAddBrandModal && (
+          <div className="absolute inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Add New Brand</h3>
+                <p className="text-sm text-gray-500 mb-4">Enter a name for the new brand.</p>
+                
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Brand Name</label>
+                <input 
+                  type="text" 
+                  value={newBrandName}
+                  onChange={(e) => setNewBrandName(e.target.value)}
+                  placeholder="e.g. Awesome Inc."
+                  className="w-full px-4 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoFocus
+                />
+
+                <div className="flex space-x-3">
+                  <button onClick={() => { setShowAddBrandModal(false); setNewBrandName(''); }} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
+                  <button onClick={handleAddBrand} className="flex-1 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded-lg shadow-lg">Add Brand</button>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* Add Office Modal */}
+        {showAddOfficeModal && (
+          <div className="absolute inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Add New Office</h3>
+                <p className="text-sm text-gray-500 mb-4">Enter the details for the new office location.</p>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Office Name</label>
+                    <input type="text" value={newOfficeDetails.name} onChange={(e) => setNewOfficeDetails(p => ({...p, name: e.target.value}))} placeholder="e.g. Downtown Branch" className="w-full px-3 py-2 border rounded-lg text-sm" autoFocus />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Street Address</label>
+                    <input type="text" value={newOfficeDetails.street} onChange={(e) => setNewOfficeDetails(p => ({...p, street: e.target.value}))} placeholder="123 Main St" className="w-full px-3 py-2 border rounded-lg text-sm" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1">City</label>
+                      <input type="text" value={newOfficeDetails.city} onChange={(e) => setNewOfficeDetails(p => ({...p, city: e.target.value}))} placeholder="Anytown" className="w-full px-3 py-2 border rounded-lg text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1">State</label>
+                      <input type="text" value={newOfficeDetails.state} onChange={(e) => setNewOfficeDetails(p => ({...p, state: e.target.value}))} placeholder="CA" className="w-full px-3 py-2 border rounded-lg text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Zip Code</label>
+                      <input type="text" value={newOfficeDetails.zip} onChange={(e) => setNewOfficeDetails(p => ({...p, zip: e.target.value}))} placeholder="12345" className="w-full px-3 py-2 border rounded-lg text-sm" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex space-x-3 mt-6">
+                  <button onClick={() => { setShowAddOfficeModal(false); setNewOfficeDetails({ name: '', street: '', city: '', state: '', zip: '' }); }} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
+                  <button onClick={handleAddOffice} disabled={loading} className="flex-1 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded-lg shadow-lg disabled:bg-blue-300 flex items-center justify-center">{loading ? <Loader2 className="animate-spin" size={16} /> : 'Add Office'}</button>
+                </div>
+             </div>
+          </div>
         )}
 
         {/* Global Loading Indicator (for manual/poly searches) */}
@@ -1348,6 +1531,30 @@ const App: React.FC = () => {
                  {showBaseMap ? <Eye size={14} /> : <EyeOff size={14} />}
                </button>
 
+               <button
+                 onClick={() => setShowServiceAreas(!showServiceAreas)}
+                 className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${showServiceAreas ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100 text-gray-600'}`}
+               >
+                 <div className="flex items-center space-x-2"><SquareDashedBottom size={14} /><span>Service Areas</span></div>
+                 {showServiceAreas ? <Eye size={14} /> : <EyeOff size={14} />}
+               </button>
+
+               <button
+                 onClick={() => setShowZipDots(!showZipDots)}
+                 className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${showZipDots ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100 text-gray-600'}`}
+               >
+                 <div className="flex items-center space-x-2"><Dot size={14} /><span>Zip Dots</span></div>
+                 {showZipDots ? <Eye size={14} /> : <EyeOff size={14} />}
+               </button>
+
+               <button
+                 onClick={() => setShowZipBoundaries(!showZipBoundaries)}
+                 className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${showZipBoundaries ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100 text-gray-600'}`}
+               >
+                 <div className="flex items-center space-x-2"><Layers size={14} /><span>Zip Boundaries</span></div>
+                 {showZipBoundaries ? <Eye size={14} /> : <EyeOff size={14} />}
+               </button>
+
                {/* Saved Polygons List */}
                {savedPolygons.length > 0 && (
                  <div className="pt-2 border-t border-gray-100 flex flex-col space-y-1">
@@ -1460,6 +1667,79 @@ const App: React.FC = () => {
                 <span>Merge Selected Areas</span>
               </button>
             )}
+          </div>
+
+          {/* Brands Panel */}
+          <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg border border-gray-200 overflow-hidden pointer-events-auto mt-2">
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div className="flex items-center space-x-2">
+                <Building size={14} className="text-gray-500" />
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Brands</span>
+              </div>
+              <button onClick={() => setShowAddBrandModal(true)} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add</button>
+            </div>
+            <div className="p-2 space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
+              {/* Unassigned Areas */}
+              <div className="text-xs">
+                <div className="font-bold px-2 py-1 text-gray-500">Unassigned</div>
+                <div className="pl-4">
+                  {savedPolygons.filter(p => !p.officeId).map(p => (
+                    <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center text-xs group rounded px-2 py-1 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
+                      <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
+                      <span className="truncate font-medium">{p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Brands List */}
+              {brands.map(brand => (
+                <div key={brand.id} className="text-xs">
+                  <div className="font-bold px-2 py-1 text-gray-800 flex justify-between items-center">
+                    <span>{brand.name}</span>
+                    <button onClick={() => handleOpenAddOfficeModal(brand.id)} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add Office</button>
+                  </div>
+                  <div className="pl-4">
+                    {/* Unassigned Offices for this brand */}
+                    {offices.filter(o => o.brandId === brand.id && !savedPolygons.some(p => p.officeId === o.id)).map(office => (
+                       <div key={office.id} className="font-medium px-2 py-1 text-gray-500">{office.name} (No areas)</div>
+                    ))}
+                    {/* Offices with Areas */}
+                    {offices.filter(o => o.brandId === brand.id && savedPolygons.some(p => p.officeId === o.id)).map(office => (
+                      <div key={office.id}>
+                        <div className="font-medium px-2 py-1 text-gray-600 flex items-center">
+                          <Building2 size={12} className="mr-1.5 shrink-0" />
+                          {office.name}
+                        </div>
+                        <div className="pl-4">
+                          {savedPolygons.filter(p => p.officeId === office.id).map(p => (
+                            <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center text-xs group rounded px-2 py-1 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
+                              <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
+                              <span className="truncate font-medium">{p.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {/* Unassigned Offices */}
+              {offices.filter(o => !o.brandId).length > 0 && (
+                <div className="text-xs pt-2 border-t border-gray-100">
+                  <div className="font-bold px-2 py-1 text-gray-500">Unassigned Offices</div>
+                  <div className="pl-4">
+                    {offices.filter(o => !o.brandId).map(office => (
+                      <div key={office.id} className="font-medium px-2 py-1 text-gray-600 flex items-center">
+                        <Building2 size={12} className="mr-1.5 shrink-0" />
+                        {office.name}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

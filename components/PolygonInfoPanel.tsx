@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Save, Edit2, User, Briefcase, FileText, Star } from 'lucide-react';
-import { SavedPolygon, Trade, SalesRep } from '../types';
+import { SavedPolygon, Trade, SalesRep, Brand, Office } from '../types';
 
 interface PolygonInfoPanelProps {
   polygon: SavedPolygon;
   onClose: () => void;
   onSave: (id: string, updates: Partial<SavedPolygon>) => void;
+  brands: Brand[];
+  offices: Office[];
 }
 
-const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, onSave }) => {
+const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, onSave, brands, offices }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [trades, setTrades] = useState<Trade[]>(polygon.trades || []);
   const [notes, setNotes] = useState(polygon.notes || '');
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(polygon.brandId);
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string | null>(polygon.officeId);
 
   // Update internal state when the polygon prop changes
   useEffect(() => {
@@ -19,7 +23,10 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
     setNotes(polygon.notes || '');
     setIsEditing(false);
   }, [polygon.id, polygon.trades, polygon.notes]);
-
+  useEffect(() => {
+    setSelectedBrandId(polygon.brandId);
+    setSelectedOfficeId(polygon.officeId);
+  }, [polygon.brandId, polygon.officeId]);
   const handleAddTrade = () => {
     const newTrade: Trade = {
       id: Date.now().toString(),
@@ -58,7 +65,7 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
   };
 
   const handleSave = () => {
-    onSave(polygon.id, { trades, notes });
+    onSave(polygon.id, { trades, notes, brandId: selectedBrandId, officeId: selectedOfficeId });
     setIsEditing(false);
   };
 
@@ -87,6 +94,40 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
             <span className="text-xl font-bold text-indigo-700">{trades.length}</span>
           </div>
         </div>
+
+        {/* Assignment Section */}
+        {isEditing && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase">Assign to Brand</label>
+              <select
+                value={selectedBrandId || ''}
+                onChange={(e) => {
+                  setSelectedBrandId(e.target.value || null);
+                  setSelectedOfficeId(null); // Reset office when brand changes
+                }}
+                className="w-full mt-1 p-2 border rounded-lg text-sm"
+              >
+                <option value="">Unassigned</option>
+                {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase">Assign to Office</label>
+              <select
+                value={selectedOfficeId || ''}
+                onChange={(e) => setSelectedOfficeId(e.target.value || null)}
+                disabled={!selectedBrandId}
+                className="w-full mt-1 p-2 border rounded-lg text-sm disabled:bg-gray-100"
+              >
+                <option value="">Unassigned</option>
+                {offices
+                  .filter(o => o.brandId === selectedBrandId)
+                  .map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* Trades Section */}
         <div className="space-y-4">

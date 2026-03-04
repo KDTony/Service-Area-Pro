@@ -27,6 +27,8 @@ export interface SavedPolygon {
   points: [number, number][];
   zips: string[]; // List of zip codes strictly within this polygon
   visible: boolean;
+  brandId: string | null;
+  officeId: string | null;
   isSearched?: boolean; // New flag to track if we have performed the search for this area
   trades?: Trade[];
   notes?: string;
@@ -52,9 +54,30 @@ export interface SavedMapState {
   selectedZips: string[];
   availableZips: ZipCodeData[];
   savedPolygons: SavedPolygon[];
+  brands?: Brand[];
+  offices?: Office[];
 }
 
 export enum SortOrder {
   ASC = 'asc',
   DESC = 'desc'
+}
+
+export interface Brand {
+  id: string;
+  name: string;
+}
+
+export interface Office {
+  id: string;
+  brandId: string | null;
+  name: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  };
+  lat: number;
+  lng: number;
 }

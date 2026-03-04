@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp, HardDrive } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { ZipCodeData, SavedPolygon } from '../types';
