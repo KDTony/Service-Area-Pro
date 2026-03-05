@@ -204,7 +204,8 @@ const MapView: React.FC<MapViewProps> = ({
             weight: isActive ? 5 : (isBeingDivided || isSelected) ? 4 : 2,
             opacity: 1, // Solid line
             fillColor: poly.color,
-            fillOpacity: isActive ? 0.5 : (isBeingDivided ? 0.4 : (isSelected ? 0.4 : 0.2)),
+            fillOpacity: isBeingDivided ? 0.1 : (isActive ? 0.5 : (isSelected ? 0.4 : 0.2)),
+            interactive: !isDividing, // Make polygons non-clickable during division
             dashArray: isBeingDivided ? '5, 5' : null,
             pane: 'polygonPane'
         });
@@ -237,7 +238,7 @@ const MapView: React.FC<MapViewProps> = ({
 
         layer.addTo(savedPolygonsLayerRef.current);
     });
-  }, [savedPolygons, onPolygonContextMenu, onPolygonClick, onTogglePolygonSelection, dividingPolygonId, selectedPolygonIds, selectedInfoPolygonId, showServiceAreas]);
+  }, [savedPolygons, onPolygonContextMenu, onPolygonClick, onTogglePolygonSelection, dividingPolygonId, selectedPolygonIds, selectedInfoPolygonId, showServiceAreas, isDividing]);
 
   // Handle Drawing Layer (Dashed style, Red, Draggable Vertices)
   useEffect(() => {
