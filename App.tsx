@@ -1250,6 +1250,7 @@ const App: React.FC = () => {
           divisionLinePoints={divisionLinePoints}
           dividingPolygonId={dividingPolygonId}
           selectedPolygonIds={selectedPolygonIds}
+          onPolygonClick={handlePolygonClick}
           selectedInfoPolygonId={selectedInfoPolygonId}
           offices={offices}
           leadPin={leadPin}

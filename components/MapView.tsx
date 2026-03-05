@@ -30,6 +30,7 @@ interface MapViewProps {
   dividingPolygonId?: string | null;
   selectedPolygonIds?: Set<string>;
   onTogglePolygonSelection?: (id: string) => void;
+  onPolygonClick?: (id: string) => void;
   offices?: Office[];
   selectedInfoPolygonId?: string | null;
   leadPin?: [number, number] | null;
@@ -60,6 +61,7 @@ const MapView: React.FC<MapViewProps> = ({
   dividingPolygonId = null,
   selectedPolygonIds = new Set(),
   onTogglePolygonSelection,
+  onPolygonClick,
   offices = [],
   selectedInfoPolygonId = null,
   leadPin = null
@@ -207,8 +209,9 @@ const MapView: React.FC<MapViewProps> = ({
         layer.on('click', (e: any) => {
             L.DomEvent.stopPropagation(e);
             if (isDrawingRef.current) return;
-            
-            if (onTogglePolygonSelection) {
+            if (onPolygonClick) {
+                onPolygonClick(poly.id);
+            } else if (onTogglePolygonSelection) {
                 onTogglePolygonSelection(poly.id);
             }
         });
@@ -230,7 +233,7 @@ const MapView: React.FC<MapViewProps> = ({
 
         layer.addTo(savedPolygonsLayerRef.current);
     });
-  }, [savedPolygons, onPolygonContextMenu, dividingPolygonId, selectedPolygonIds, selectedInfoPolygonId, showServiceAreas]);
+  }, [savedPolygons, onPolygonContextMenu, onPolygonClick, onTogglePolygonSelection, dividingPolygonId, selectedPolygonIds, selectedInfoPolygonId, showServiceAreas]);
 
   // Handle Drawing Layer (Dashed style, Red, Draggable Vertices)
   useEffect(() => {

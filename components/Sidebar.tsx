@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp, HardDrive } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { ZipCodeData, SavedPolygon } from '../types';
@@ -31,6 +30,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
   const saveMenuRef = useRef<HTMLDivElement>(null);
+
+  const extractedZip = useMemo(() => {
+    if (!initialZip) return null;
+    const match = initialZip.match(/\b\d{5}\b/);
+    return match ? match[0] : null;
+  }, [initialZip]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -115,12 +120,11 @@ const Sidebar: React.FC<SidebarProps> = ({
           </form>
 
           {/* Matching Areas Info */}
-          {(initialZip.length >= 5 || leadPin) && (
+          {extractedZip && (
             <div className="mt-4 space-y-3">
               {savedPolygons
-                .filter(p => {
-                  // Match by zip code if initialZip looks like one
-                  if (initialZip.length === 5 && /^\d+$/.test(initialZip) && p.zips.includes(initialZip)) {
+                .filter(p => {                  // Match by zip code if initialZip looks like one
+                  if (extractedZip && p.zips.includes(extractedZip)) {
                     return true;
                   }
                   // Match by leadPin containment
