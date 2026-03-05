@@ -769,6 +769,27 @@ const App: React.FC = () => {
     });
   };
 
+  const handleSelectAllBrandAreas = () => {
+    if (!brandContextMenu) return;
+    const officeIds = offices.filter(o => o.brandId === brandContextMenu.brandId).map(o => o.id);
+    const areaIds = savedPolygons
+      .filter(p => p.brandId === brandContextMenu.brandId || (p.officeId && officeIds.includes(p.officeId)))
+      .map(p => p.id);
+
+    setSelectedPolygonIds(prev => new Set([...prev, ...areaIds]));
+    setBrandContextMenu(null);
+  };
+
+  const handleSelectAllOfficeAreas = () => {
+    if (!officeContextMenu) return;
+    const areaIds = savedPolygons
+      .filter(p => p.officeId === officeContextMenu.officeId)
+      .map(p => p.id);
+
+    setSelectedPolygonIds(prev => new Set([...prev, ...areaIds]));
+    setOfficeContextMenu(null);
+  };
+  
   const handleLeadPinContextMenu = (x: number, y: number) => {
     setLeadPinContextMenu({ x, y });
   };
@@ -1067,7 +1088,14 @@ const App: React.FC = () => {
 
   const handlePolygonClick = (id: string) => {
     if (isDrawing || isDividing) return;
-    setSelectedInfoPolygonId(id);
+    if (selectedInfoPolygonId === id) {
+      // Already selected, so deselect
+      setSelectedInfoPolygonId(null);
+    } else {
+      // Not selected, so select it and hide sidebar if open
+      setSelectedInfoPolygonId(id);
+      if (isSidebarOpen) setIsSidebarOpen(false);
+    }
   };
 
   const updatePolygonDetails = (id: string, updates: Partial<SavedPolygon>) => {
@@ -1667,6 +1695,9 @@ const App: React.FC = () => {
             const canDelete = !offices.some(o => o.brandId === brandContextMenu.brandId);
             return (
               <div className="absolute z-[600] bg-white rounded-lg shadow-xl border border-gray-100 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 origin-top-left" style={{ top: brandContextMenu.y, left: brandContextMenu.x }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={handleSelectAllBrandAreas} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                  <CheckCircle2 size={14} className="mr-2" /> Select All Service Areas
+                </button>
                 <button onClick={handleAddOfficeFromMenu} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
                   <Building2 size={14} className="mr-2" /> Add Office
                 </button>
@@ -1695,6 +1726,9 @@ const App: React.FC = () => {
             const canDelete = !savedPolygons.some(p => p.officeId === officeContextMenu.officeId);
             return (
               <div className="absolute z-[600] bg-white rounded-lg shadow-xl border border-gray-100 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 origin-top-left" style={{ top: officeContextMenu.y, left: officeContextMenu.x }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={handleSelectAllOfficeAreas} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                  <CheckCircle2 size={14} className="mr-2" /> Select All Service Areas
+                </button>
                 <button onClick={handleSelectOfficeZips} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
                   <PlusCircle size={14} className="mr-2" /> Select All Zips
                 </button>
