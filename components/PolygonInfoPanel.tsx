@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, Edit2, User, Briefcase, FileText, Star } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Plus, Trash2, Save, Edit2, User, Briefcase, FileText, Star, Users } from 'lucide-react';
 import { SavedPolygon, Trade, SalesRep, Brand, Office } from '../types';
 
 interface PolygonInfoPanelProps {
@@ -16,6 +16,10 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
   const [notes, setNotes] = useState(polygon.notes || '');
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(polygon.brandId);
   const [selectedOfficeId, setSelectedOfficeId] = useState<string | null>(polygon.officeId);
+
+  const totalReps = useMemo(() => {
+    return trades.reduce((sum, trade) => sum + trade.reps.length, 0);
+  }, [trades]);
 
   // Update internal state when the polygon prop changes
   useEffect(() => {
@@ -84,14 +88,18 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-2">
           <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
             <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block mb-1">Zip Codes</span>
             <span className="text-xl font-bold text-blue-700">{polygon.zips.length}</span>
           </div>
           <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
             <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider block mb-1">Trades</span>
-            <span className="text-xl font-bold text-indigo-700">{trades.length}</span>
+            <span className="text-xl font-bold text-indigo-700">{trades.length || 0}</span>
+          </div>
+          <div className="bg-purple-50 p-3 rounded-xl border border-purple-100">
+            <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block mb-1">Reps</span>
+            <span className="text-xl font-bold text-purple-700">{totalReps}</span>
           </div>
         </div>
 

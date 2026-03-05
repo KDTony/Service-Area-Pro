@@ -86,6 +86,14 @@ const App: React.FC = () => {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingColorId, setEditingColorId] = useState<string | null>(null);
   const [polygonFilter, setPolygonFilter] = useState('');
+  const [leadPinContextMenu, setLeadPinContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [brandContextMenu, setBrandContextMenu] = useState<{ x: number; y: number; brandId: string } | null>(null);
+  const [officeContextMenu, setOfficeContextMenu] = useState<{ x: number; y: number; officeId: string } | null>(null);
+  const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
+  const [editingOfficeId, setEditingOfficeId] = useState<string | null>(null);
+  const [editingBrandName, setEditingBrandName] = useState('');
+  const [editingOfficeName, setEditingOfficeName] = useState('');
+  const [deletingPolygonId, setDeletingPolygonId] = useState<string | null>(null);
 
   // UI State for collapsible panels
   const [isLayersPanelCollapsed, setIsLayersPanelCollapsed] = useState(false);
@@ -566,6 +574,12 @@ const App: React.FC = () => {
     setNewBrandName('');
   };
 
+  const handleAddOfficeFromMenu = () => {
+    if (!brandContextMenu) return;
+    handleOpenAddOfficeModal(brandContextMenu.brandId);
+    setBrandContextMenu(null);
+  };
+
   const handleOpenAddOfficeModal = (brandId: string) => {
     setAddingOfficeToBrandId(brandId);
     setShowAddOfficeModal(true);
@@ -619,6 +633,63 @@ const App: React.FC = () => {
     }
   };
 
+  const handleBrandContextMenu = (brandId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setBrandContextMenu({ x: rect.left - 150, y: rect.top, brandId });
+  };
+
+  const handleOfficeContextMenu = (officeId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setOfficeContextMenu({ x: rect.left - 150, y: rect.top, officeId });
+  };
+
+  const handleRenameBrandStart = () => {
+    if (!brandContextMenu) return;
+    const brand = brands.find(b => b.id === brandContextMenu.brandId);
+    if (brand) {
+      setEditingBrandId(brand.id);
+      setEditingBrandName(brand.name);
+    }
+    setBrandContextMenu(null);
+  };
+
+  const handleRenameOfficeStart = () => {
+    if (!officeContextMenu) return;
+    const office = offices.find(o => o.id === officeContextMenu.officeId);
+    if (office) {
+      setEditingOfficeId(office.id);
+      setEditingOfficeName(office.name);
+    }
+    setOfficeContextMenu(null);
+  };
+
+  const handleUpdateBrandName = () => {
+    if (!editingBrandId || !editingBrandName.trim()) return;
+    setBrands(prev => prev.map(b => b.id === editingBrandId ? { ...b, name: editingBrandName.trim() } : b));
+    setEditingBrandId(null);
+  };
+
+  const handleUpdateOfficeName = () => {
+    if (!editingOfficeId || !editingOfficeName.trim()) return;
+    setOffices(prev => prev.map(o => o.id === editingOfficeId ? { ...o, name: editingOfficeName.trim() } : o));
+    setEditingOfficeId(null);
+  };
+
+  const handleDeleteBrand = () => {
+    if (!brandContextMenu) return;
+    setBrands(prev => prev.filter(b => b.id !== brandContextMenu.brandId));
+    setOffices(prev => prev.map(o => o.brandId === brandContextMenu.brandId ? { ...o, brandId: null } : o));
+    setBrandContextMenu(null);
+  };
+
+  const handleDeleteOffice = () => {
+    if (!officeContextMenu) return;
+    setOffices(prev => prev.filter(o => o.id !== officeContextMenu.officeId));
+    setSavedPolygons(prev => prev.map(p => p.officeId === officeContextMenu.officeId ? { ...p, officeId: null } : p));
+    setOfficeContextMenu(null);
+  };
   // --- Context Menu & Editing Actions ---
 
   const handlePolygonContextMenu = useCallback((id: string, x: number, y: number) => {
@@ -647,18 +718,60 @@ const App: React.FC = () => {
     setContextMenu(null);
   };
 
-  const handleDeletePolygon = () => {
+  const handleDeletePolygonStart = () => {
     if (!contextMenu) return;
-    setSavedPolygons(prev => prev.filter(p => p.id !== contextMenu.polygonId));
-    
-    // Close info panel if open for this polygon
-    if (selectedInfoPolygonId === contextMenu.polygonId) {
-      setSelectedInfoPolygonId(null);
-    }
-    
+    setDeletingPolygonId(contextMenu.polygonId);
     setContextMenu(null);
   };
 
+  const confirmDeletePolygon = () => {
+    if (!deletingPolygonId) return;
+
+    setSavedPolygons(prev => prev.filter(p => p.id !== deletingPolygonId));
+    
+    // Close info panel if open for this polygon
+    if (selectedInfoPolygonId === deletingPolygonId) {
+      setSelectedInfoPolygonId(null);
+    }
+    
+    // Close the confirmation modal
+    setDeletingPolygonId(null);
+  };
+
+  const handleOfficeClick = (officeId: string) => {
+    const office = offices.find(o => o.id === officeId);
+    if (!office) return;
+
+    // Expand brand and office in the sidebar
+    if (office.brandId && collapsedBrands.has(office.brandId)) {
+      toggleBrandCollapse(office.brandId);
+    }
+    if (collapsedOffices.has(officeId)) {
+      toggleOfficeCollapse(officeId);
+    }
+
+    // Toggle selection of all polygons for this office
+    const officePolygonIds = savedPolygons.filter(p => p.officeId === officeId).map(p => p.id);
+    if (officePolygonIds.length === 0) return;
+
+    setSelectedPolygonIds(prev => {
+      const newSet = new Set(prev);
+      const allSelected = officePolygonIds.every(id => newSet.has(id));
+
+      officePolygonIds.forEach(id => {
+        if (allSelected) {
+          newSet.delete(id);
+        } else {
+          newSet.add(id);
+        }
+      });
+      return newSet;
+    });
+  };
+
+  const handleLeadPinContextMenu = (x: number, y: number) => {
+    setLeadPinContextMenu({ x, y });
+  };
   const handleSelectPolygonZips = (polygonId: string) => {
     const poly = savedPolygons.find(p => p.id === polygonId);
     if (poly) {
@@ -670,6 +783,30 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSelectBrandZips = () => {
+    if (!brandContextMenu) return;
+    const officeIds = offices.filter(o => o.brandId === brandContextMenu.brandId).map(o => o.id);
+    const zipsToSelect = new Set<string>();
+    savedPolygons.forEach(p => {
+      if (p.brandId === brandContextMenu.brandId || (p.officeId && officeIds.includes(p.officeId))) {
+        p.zips.forEach(zip => zipsToSelect.add(zip));
+      }
+    });
+    setSelectedZips(prev => new Set([...prev, ...zipsToSelect]));
+    setBrandContextMenu(null);
+  };
+
+  const handleSelectOfficeZips = () => {
+    if (!officeContextMenu) return;
+    const zipsToSelect = new Set<string>();
+    savedPolygons.forEach(p => {
+      if (p.officeId === officeContextMenu.officeId) {
+        p.zips.forEach(zip => zipsToSelect.add(zip));
+      }
+    });
+    setSelectedZips(prev => new Set([...prev, ...zipsToSelect]));
+    setOfficeContextMenu(null);
+  };
   const handleRenameStart = () => {
     if (!contextMenu) return;
     setEditingNameId(contextMenu.polygonId);
@@ -1056,7 +1193,8 @@ const App: React.FC = () => {
   // Close context menu on map click
   useEffect(() => {
     const closeMenu = () => setContextMenu(null);
-    window.addEventListener('click', closeMenu);
+    const closeOfficeMenu = () => setLeadPinContextMenu(null);
+    window.addEventListener('click', () => { closeMenu(); closeOfficeMenu(); setBrandContextMenu(null); setOfficeContextMenu(null); });
     return () => window.removeEventListener('click', closeMenu);
   }, []);
 
@@ -1254,6 +1392,8 @@ const App: React.FC = () => {
           selectedInfoPolygonId={selectedInfoPolygonId}
           offices={offices}
           leadPin={leadPin}
+          onOfficeClick={handleOfficeClick}
+          onLeadPinContextMenu={handleLeadPinContextMenu}
         />
 
         {/* Polygon Info Panel */}
@@ -1426,6 +1566,59 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* Delete Polygon Confirmation Modal */}
+        {deletingPolygonId && (
+          <div className="absolute inset-0 z-[700] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-red-600 mb-2">Are you sure?</h3>
+                <p className="text-sm text-gray-600 mb-6">Deleting a Service Area is permanent and cannot be undone! Are you sure you wish to continue?</p>
+                
+                <div className="flex space-x-3">
+                  <button onClick={() => setDeletingPolygonId(null)} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
+                  <button onClick={confirmDeletePolygon} className="flex-1 py-2 bg-red-600 text-white font-bold hover:bg-red-700 rounded-lg shadow-lg">Yes, proceed</button>
+                </div>
+             </div>
+          </div>
+        )}
+
+
+        {/* Rename Brand Modal */}
+        {editingBrandId && (
+          <div className="absolute inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Rename Brand</h3>
+                <input 
+                  type="text" 
+                  value={editingBrandName}
+                  onChange={(e) => setEditingBrandName(e.target.value)}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') handleUpdateBrandName(); }}
+                  className="w-full px-4 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoFocus
+                />
+                <button onClick={() => { handleUpdateBrandName(); }} className="w-full py-2 bg-blue-600 text-white font-bold rounded-lg">Save</button>
+                <button onClick={() => setEditingBrandId(null)} className="w-full py-2 text-gray-500 hover:text-gray-800 font-medium mt-2">Cancel</button>
+             </div>
+          </div>
+        )}
+
+        {/* Rename Office Modal */}
+        {editingOfficeId && (
+          <div className="absolute inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Rename Office</h3>
+                <input 
+                  type="text" 
+                  value={editingOfficeName}
+                  onChange={(e) => setEditingOfficeName(e.target.value)}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') handleUpdateOfficeName(); }}
+                  className="w-full px-4 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoFocus
+                />
+                <button onClick={() => { handleUpdateOfficeName(); }} className="w-full py-2 bg-blue-600 text-white font-bold rounded-lg">Save</button>
+                <button onClick={() => setEditingOfficeId(null)} className="w-full py-2 text-gray-500 hover:text-gray-800 font-medium mt-2">Cancel</button>
+             </div>
+          </div>
+        )}
         {/* Context Menu */}
         {contextMenu && (
           <div 
@@ -1446,13 +1639,79 @@ const App: React.FC = () => {
                <Palette size={14} className="mr-2" /> Change Color
              </button>
              <button onClick={handleDivideStart} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
-               <Layers size={14} className="mr-2" /> Divide Area
+               <Combine size={14} className="mr-2" /> Divide Area
              </button>
              <div className="h-px bg-gray-100 my-1"></div>
-             <button onClick={handleDeletePolygon} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
+             <button onClick={handleDeletePolygonStart} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
                <Trash2 size={14} className="mr-2" /> Delete Area
              </button>
           </div>
+        )}
+        
+        {/* Office Context Menu */}
+        {leadPinContextMenu && (
+          <div 
+            className="absolute z-[600] bg-white rounded-lg shadow-xl border border-gray-100 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 origin-top-left"
+            style={{ top: leadPinContextMenu.y, left: leadPinContextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+             <button onClick={() => { setLeadPin(null); setLeadPinContextMenu(null); setInitialZip(''); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+               <XCircle size={14} className="mr-2" /> Clear Pin / New Search
+             </button>
+          </div>
+        )}
+
+        {/* Brand Context Menu */}
+        {brandContextMenu && (
+          (() => {
+            const canDelete = !offices.some(o => o.brandId === brandContextMenu.brandId);
+            return (
+              <div className="absolute z-[600] bg-white rounded-lg shadow-xl border border-gray-100 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 origin-top-left" style={{ top: brandContextMenu.y, left: brandContextMenu.x }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={handleAddOfficeFromMenu} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                  <Building2 size={14} className="mr-2" /> Add Office
+                </button>
+                <button onClick={handleSelectBrandZips} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                  <PlusCircle size={14} className="mr-2" /> Select All Zips
+                </button>
+                <button onClick={handleRenameBrandStart} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                  <Type size={14} className="mr-2" /> Rename Brand
+                </button>
+                {canDelete && (
+                  <>
+                    <div className="h-px bg-gray-100 my-1"></div>
+                    <button onClick={handleDeleteBrand} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
+                      <Trash2 size={14} className="mr-2" /> Delete Brand
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })()
+        )}
+
+        {/* Office Context Menu */}
+        {officeContextMenu && (
+          (() => {
+            const canDelete = !savedPolygons.some(p => p.officeId === officeContextMenu.officeId);
+            return (
+              <div className="absolute z-[600] bg-white rounded-lg shadow-xl border border-gray-100 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 origin-top-left" style={{ top: officeContextMenu.y, left: officeContextMenu.x }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={handleSelectOfficeZips} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                  <PlusCircle size={14} className="mr-2" /> Select All Zips
+                </button>
+                <button onClick={handleRenameOfficeStart} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
+                  <Type size={14} className="mr-2" /> Rename Office
+                </button>
+                {canDelete && (
+                  <>
+                    <div className="h-px bg-gray-100 my-1"></div>
+                    <button onClick={handleDeleteOffice} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
+                      <Trash2 size={14} className="mr-2" /> Delete Office
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })()
         )}
 
         {/* Floating Actions Container (Bottom Center) */}
@@ -1677,9 +1936,11 @@ const App: React.FC = () => {
                       <div className="font-bold px-2 py-1 text-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-100/50 rounded-md" onClick={() => toggleBrandCollapse(brand.id)}>
                         <div className="flex items-center">
                           <ChevronRight size={14} className={`mr-1 text-gray-400 transition-transform ${!collapsedBrands.has(brand.id) && 'rotate-90'}`} />
-                          <span>{brand.name}</span>
+                          <span className="truncate">{brand.name}</span>
                         </div>
-                        <button onClick={(e) => { e.stopPropagation(); handleOpenAddOfficeModal(brand.id); }} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add Office</button>
+                        <button onClick={(e) => handleBrandContextMenu(brand.id, e)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700">
+                          <MoreVertical size={12} />
+                        </button>
                       </div>
                       {!collapsedBrands.has(brand.id) && (
                         <div className="pl-4">
@@ -1690,10 +1951,15 @@ const App: React.FC = () => {
                           {/* Offices with Areas */}
                           {offices.filter(o => o.brandId === brand.id && savedPolygons.some(p => p.officeId === o.id)).map(office => (
                             <div key={office.id}>
-                              <div className="font-medium px-2 py-1 text-gray-600 flex items-center cursor-pointer hover:bg-gray-100/50 rounded-md" onClick={() => toggleOfficeCollapse(office.id)}>
-                                <ChevronRight size={14} className={`mr-1 text-gray-400 transition-transform ${!collapsedOffices.has(office.id) && 'rotate-90'}`} />
-                                <Building2 size={12} className="mr-1.5 shrink-0" />
-                                {office.name}
+                              <div className="font-medium px-2 py-1 text-gray-600 flex items-center justify-between cursor-pointer hover:bg-gray-100/50 rounded-md" onClick={() => toggleOfficeCollapse(office.id)}>
+                                <div className="flex items-center">
+                                  <ChevronRight size={14} className={`mr-1 text-gray-400 transition-transform ${!collapsedOffices.has(office.id) && 'rotate-90'}`} />
+                                  <Building2 size={12} className="mr-1.5 shrink-0" />
+                                  <span className="truncate">{office.name}</span>
+                                </div>
+                                <button onClick={(e) => handleOfficeContextMenu(office.id, e)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700">
+                                  <MoreVertical size={12} />
+                                </button>
                               </div>
                               {!collapsedOffices.has(office.id) && (
                                 <div className="pl-4">

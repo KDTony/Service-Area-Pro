@@ -33,6 +33,8 @@ interface MapViewProps {
   onPolygonClick?: (id: string) => void;
   offices?: Office[];
   selectedInfoPolygonId?: string | null;
+  onOfficeClick?: (officeId: string) => void;
+  onLeadPinContextMenu?: (x: number, y: number) => void;
   leadPin?: [number, number] | null;
 }
 
@@ -64,6 +66,8 @@ const MapView: React.FC<MapViewProps> = ({
   onPolygonClick,
   offices = [],
   selectedInfoPolygonId = null,
+  onOfficeClick,
+  onLeadPinContextMenu,
   leadPin = null
 }) => {
   const mapRef = useRef<any>(null);
@@ -425,9 +429,16 @@ const MapView: React.FC<MapViewProps> = ({
         iconAnchor: [12, 24]
       });
 
-      leadPinRef.current = L.marker(leadPin, { icon, zIndexOffset: 2000 }).addTo(mapRef.current);
+      const marker = L.marker(leadPin, { icon, zIndexOffset: 2000 }).addTo(mapRef.current);
+
+      marker.on('contextmenu', (e: any) => {
+        L.DomEvent.stopPropagation(e);
+        L.DomEvent.preventDefault(e);
+        if (onLeadPinContextMenu) onLeadPinContextMenu(e.originalEvent.clientX, e.originalEvent.clientY);
+      });
+      leadPinRef.current = marker;
     }
-  }, [leadPin]);
+  }, [leadPin, onLeadPinContextMenu]);
 
   // Handle Office Pins
   useEffect(() => {
@@ -445,15 +456,23 @@ const MapView: React.FC<MapViewProps> = ({
         iconAnchor: [12, 24]
       });
 
-      L.marker([office.lat, office.lng], { icon })
+      const marker = L.marker([office.lat, office.lng], { icon })
         .addTo(officePinsRef.current)
         .bindTooltip(office.name, {
           permanent: true,
           direction: 'top',
           className: 'polygon-label'
         });
+
+      marker.on('click', (e: any) => {
+        L.DomEvent.stopPropagation(e);
+        if (onOfficeClick) {
+          onOfficeClick(office.id);
+        }
+      });
+
     });
-  }, [offices]);
+  }, [offices, onOfficeClick]);
 
   // Render Boundaries
   useEffect(() => {
