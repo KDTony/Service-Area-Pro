@@ -9,7 +9,7 @@ interface SidebarProps {
   setInitialZip: (val: string) => void;
   radius: number;
   setRadius: (val: number) => void;
-  onSearch: (e: React.FormEvent<HTMLFormElement>) => void;
+  onSearch: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
   loading: boolean;
   selectedZipList: ZipCodeData[];
   onClear: () => void;

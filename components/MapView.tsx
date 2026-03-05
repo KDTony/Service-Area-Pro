@@ -30,7 +30,6 @@ interface MapViewProps {
   dividingPolygonId?: string | null;
   selectedPolygonIds?: Set<string>;
   onTogglePolygonSelection?: (id: string) => void;
-  onPolygonClick?: (id: string) => void;
   offices?: Office[];
   selectedInfoPolygonId?: string | null;
   leadPin?: [number, number] | null;
@@ -61,7 +60,6 @@ const MapView: React.FC<MapViewProps> = ({
   dividingPolygonId = null,
   selectedPolygonIds = new Set(),
   onTogglePolygonSelection,
-  onPolygonClick,
   offices = [],
   selectedInfoPolygonId = null,
   leadPin = null
@@ -210,9 +208,7 @@ const MapView: React.FC<MapViewProps> = ({
             L.DomEvent.stopPropagation(e);
             if (isDrawingRef.current) return;
             
-            if (onPolygonClick) {
-                onPolygonClick(poly.id);
-            } else if (onTogglePolygonSelection) {
+            if (onTogglePolygonSelection) {
                 onTogglePolygonSelection(poly.id);
             }
         });
@@ -456,6 +452,33 @@ const MapView: React.FC<MapViewProps> = ({
     });
   }, [offices]);
 
+  // Render Boundaries
+  useEffect(() => {
+    if (!mapRef.current || !zipBoundariesRef.current) return;
+
+    zipBoundariesRef.current.clearLayers();
+
+    if (!showZipBoundaries || currentZoom < 11) return;
+
+    const map = mapRef.current;
+    const bounds = currentBounds || map.getBounds();
+
+    availableZips.forEach(zipData => {
+      const latLng = L.latLng(zipData.lat, zipData.lng);
+      if (bounds.contains(latLng) && zipData.boundary && zipData.boundary.length > 2) {
+        const latLngBoundary = zipData.boundary.map(p => [p[1], p[0]] as [number, number]);
+        L.polygon(latLngBoundary, {
+          color: '#38bdf8', // light-blue-400
+          weight: 1,
+          opacity: 0.7,
+          fill: false,
+          interactive: false,
+          pane: 'zipBoundaryPane'
+        }).addTo(zipBoundariesRef.current);
+      }
+    });
+  }, [availableZips, currentZoom, currentBounds, showZipBoundaries]);
+
   // Render Dots and Boundaries
   useEffect(() => {
     if (!mapRef.current) return;
@@ -473,9 +496,6 @@ const MapView: React.FC<MapViewProps> = ({
         }
       }
     });
-    if (zipBoundariesRef.current) {
-        zipBoundariesRef.current.clearLayers();
-    }
 
     const DOT_STYLES = {
       selected: { radius: 12, fillColor: '#2563eb', color: '#ffffff', weight: 4, opacity: 1, fillOpacity: 1 },
@@ -518,7 +538,9 @@ const MapView: React.FC<MapViewProps> = ({
         .on('click', (e: any) => {
           L.DomEvent.stopPropagation(e);
           if (isDrawingRef.current) return; 
-          onZipClick(zipData.zip);
+          if (onZipClick) {
+            onZipClick(zipData.zip);
+          }
         })
         .on('mouseover', function (this: any) {
             this.bindTooltip(`
@@ -556,21 +578,6 @@ const MapView: React.FC<MapViewProps> = ({
             marker.unbindTooltip();
          }
       }
-
-      // Boundary Rendering
-      if (showZipBoundaries && currentZoom >= 11 && zipData.boundary && zipData.boundary.length > 2) { // Only check showZipBoundaries for boundaries
-        const latLngBoundary = zipData.boundary.map(p => [p[1], p[0]] as [number, number]);
-        const boundaryLayer = L.polygon(latLngBoundary, {
-          color: '#38bdf8', // light-blue-400
-          weight: 1,
-          opacity: 0.7,
-          fill: false,
-          interactive: false, // Make it non-clickable
-          pane: 'zipBoundaryPane'
-        });
-        boundaryLayer.addTo(zipBoundariesRef.current);
-      }
-
     });
 
     if (availableZips.length > 0 && shouldFitBounds && initialLoadRef.current) {
@@ -591,7 +598,7 @@ const MapView: React.FC<MapViewProps> = ({
         initialLoadRef.current = false; 
     }
 
-  }, [availableZips, selectedZips, onZipClick, currentZoom, shouldFitBounds, currentBounds, showZipDots, showZipBoundaries]); 
+  }, [availableZips, selectedZips, onZipClick, currentZoom, shouldFitBounds, currentBounds, showZipDots]); 
 
   // Reset initial load ref if fitBounds is requested
   useEffect(() => {

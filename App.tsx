@@ -87,6 +87,12 @@ const App: React.FC = () => {
   const [editingColorId, setEditingColorId] = useState<string | null>(null);
   const [polygonFilter, setPolygonFilter] = useState('');
 
+  // UI State for collapsible panels
+  const [isLayersPanelCollapsed, setIsLayersPanelCollapsed] = useState(false);
+  const [isBrandsPanelCollapsed, setIsBrandsPanelCollapsed] = useState(false);
+  const [collapsedBrands, setCollapsedBrands] = useState<Set<string>>(new Set());
+  const [collapsedOffices, setCollapsedOffices] = useState<Set<string>>(new Set());
+
   // Pre-loading Logic for State Centroids
   const loadStateZips = async (stateCode: string) => {
     const code = stateCode.toUpperCase();
@@ -879,6 +885,30 @@ const App: React.FC = () => {
     setEditingNameId(null);
   };
 
+  const toggleBrandCollapse = (brandId: string) => {
+    setCollapsedBrands(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(brandId)) {
+        newSet.delete(brandId);
+      } else {
+        newSet.add(brandId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleOfficeCollapse = (officeId: string) => {
+    setCollapsedOffices(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(officeId)) {
+        newSet.delete(officeId);
+      } else {
+        newSet.add(officeId);
+      }
+      return newSet;
+    });
+  };
+
   const togglePolygonVisibility = (id: string) => {
     setSavedPolygons(prev => prev.map(p => p.id === id ? { ...p, visible: !p.visible } : p));
   };
@@ -1220,8 +1250,6 @@ const App: React.FC = () => {
           divisionLinePoints={divisionLinePoints}
           dividingPolygonId={dividingPolygonId}
           selectedPolygonIds={selectedPolygonIds}
-          onTogglePolygonSelection={toggleZipSelection}
-          onPolygonClick={handlePolygonClick}
           selectedInfoPolygonId={selectedInfoPolygonId}
           offices={offices}
           leadPin={leadPin}
@@ -1517,31 +1545,22 @@ const App: React.FC = () => {
           {/* Main Panel */}
           <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg border border-gray-200 overflow-hidden pointer-events-auto">
             {/* Header / Status */}
-            <div className="p-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 cursor-pointer hover:bg-gray-100/50 transition-colors" onClick={() => setIsLayersPanelCollapsed(!isLayersPanelCollapsed)}>
                <div className="flex items-center space-x-2">
                   <Layers size={14} className="text-gray-500" />
                   <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Layers</span>
-                  <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
-                   {selectedZips.size} Selected
-                 </span>
+               </div>
+               <div className="flex items-center space-x-2">
+                 <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                    {selectedZips.size} Selected
+                  </span>
+                  <ChevronRight size={14} className={`text-gray-400 transition-transform ${!isLayersPanelCollapsed && 'rotate-90'}`} />
                </div>
             </div>
 
-            <div className="p-2 space-y-2">
-               {/* Search/Filter Polygons */}
-               <div className="px-2 pb-2">
-                 <div className="relative">
-                   <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
-                   <input
-                     type="text"
-                     placeholder="Filter areas or trades..."
-                     value={polygonFilter}
-                     onChange={(e) => setPolygonFilter(e.target.value)}
-                     className="w-full pl-7 pr-2 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-[10px] focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                   />
-                 </div>
-               </div>
-
+            {/* Collapsible Content */}
+            {!isLayersPanelCollapsed && (
+              <div className="p-2 space-y-2 animate-in fade-in duration-200">
                {/* Base Map Toggle */}
                <button
                  onClick={() => setShowBaseMap(!showBaseMap)}
@@ -1577,198 +1596,184 @@ const App: React.FC = () => {
                  <div className="flex items-center space-x-2"><Layers size={14} /><span>Zip Boundaries</span></div>
                  {showZipBoundaries ? <Eye size={14} /> : <EyeOff size={14} />}
                </button>
-
-            </div>
-
-            {/* Add Selected Polygons' Zips Button */}
-            {selectedPolygonIds.size > 0 && (
-              <button
-                onClick={handleAddSelectedToZips}
-                className="w-full py-2 text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 mt-2"
-              >
-                <PlusCircle size={16} />
-                <span>Add Selected To Zips</span>
-              </button>
-            )}
-
-
-            {/* Merge Polygons Button (Moved to bottom of Layers sidebar) */}
-            {canMergePolygons && (
-              <button 
-                onClick={handleMergePolygons}
-                className="w-full py-2 text-sm font-bold bg-gray-900 text-white hover:bg-black rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 mt-4"
-              >
-                <Combine size={16} />
-                <span>Merge Selected Areas</span>
-              </button>
+              </div>
             )}
           </div>
 
           {/* Brands Panel */}
-          <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg border border-gray-200 overflow-hidden pointer-events-auto mt-2">
-            <div className="p-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg border border-gray-200 overflow-hidden pointer-events-auto">
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 cursor-pointer hover:bg-gray-100/50 transition-colors" onClick={() => setIsBrandsPanelCollapsed(!isBrandsPanelCollapsed)}>
               <div className="flex items-center space-x-2">
                 <Building size={14} className="text-gray-500" />
                 <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Brands</span>
               </div>
-              <button onClick={() => setShowAddBrandModal(true)} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add</button>
-            </div>
-            <div className="p-2 space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
-              {/* Unassigned Areas */}
-              <div className="text-xs">
-                <div className="font-bold px-2 py-1 text-gray-500">Unassigned</div>
-                <div className="pl-4">
-                  {savedPolygons
-                    .filter(p => !p.officeId && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
-                    .map(p => (
-                      <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
-                        <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
-                          <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
-                            {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
-                          </div>
-                          <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
-                          <div className="flex flex-col truncate">
-                            <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
-                            <div className="flex items-center space-x-1.5">
-                              <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
-                              {!p.isSearched && !searchingPolygonId && (
-                                <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          {!p.isSearched && (
-                            <button
-                              onClick={(e) => handleSearchSavedPolygon(p.id, e)}
-                              disabled={!!searchingPolygonId}
-                              className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`}
-                              title="Search for zips in this area"
-                            >
-                              {searchingPolygonId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                            </button>
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              togglePolygonVisibility(p.id);
-                            }}
-                            className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
-                            title="Toggle Visibility"
-                          >
-                            {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-                          </button>
-                          <button
-                            className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id });
-                            }}
-                          >
-                            <MoreVertical size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
+              <div className="flex items-center space-x-2">
+                <button onClick={(e) => { e.stopPropagation(); setShowAddBrandModal(true); }} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add</button>
+                <ChevronRight size={14} className={`text-gray-400 transition-transform ${!isBrandsPanelCollapsed && 'rotate-90'}`} />
               </div>
-
-              {/* Brands List */}
-              {brands.map(brand => (
-                <div key={brand.id} className="text-xs">
-                  <div className="font-bold px-2 py-1 text-gray-800 flex justify-between items-center">
-                    <span>{brand.name}</span>
-                    <button onClick={() => handleOpenAddOfficeModal(brand.id)} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add Office</button>
-                  </div>
-                  <div className="pl-4">
-                    {/* Unassigned Offices for this brand */}
-                    {offices.filter(o => o.brandId === brand.id && !savedPolygons.some(p => p.officeId === o.id)).map(office => (
-                       <div key={office.id} className="font-medium px-2 py-1 text-gray-500">{office.name} (No areas)</div>
-                    ))}
-                    {/* Offices with Areas */}
-                    {offices.filter(o => o.brandId === brand.id && savedPolygons.some(p => p.officeId === o.id)).map(office => (
-                      <div key={office.id}>
-                        <div className="font-medium px-2 py-1 text-gray-600 flex items-center">
-                          <Building2 size={12} className="mr-1.5 shrink-0" />
-                          {office.name}
-                        </div>
-                        <div className="pl-4">
-                          {savedPolygons
-                            .filter(p => p.officeId === office.id && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
-                            .map(p => (
-                              <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
-                                <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
-                                  <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
-                                    {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
-                                  </div>
-                                  <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
-                                  <div className="flex flex-col truncate">
-                                    <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
-                                    <div className="flex items-center space-x-1.5">
-                                      <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
-                                      {!p.isSearched && !searchingPolygonId && (
-                                        <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="flex items-center space-x-1">
-                                  {!p.isSearched && (
-                                    <button
-                                      onClick={(e) => handleSearchSavedPolygon(p.id, e)}
-                                      disabled={!!searchingPolygonId}
-                                      className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`}
-                                      title="Search for zips in this area"
-                                    >
-                                      {searchingPolygonId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                                    </button>
+            </div>
+            {/* Search/Filter Input */}
+            <div className="p-2 border-b border-gray-100">
+              <div className="relative">
+                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Filter areas or trades..."
+                  value={polygonFilter}
+                  onChange={(e) => setPolygonFilter(e.target.value)}
+                  className="w-full pl-7 pr-2 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-[10px] focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+            {/* Collapsible Content */}
+            {!isBrandsPanelCollapsed && (
+              <div className="animate-in fade-in duration-200">
+                <div className="p-2 space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
+                  {/* Unassigned Areas */}
+                  <div className="text-xs">
+                    <div className="font-bold px-2 py-1 text-gray-500">Unassigned</div>
+                    <div className="pl-4">
+                      {savedPolygons
+                        .filter(p => !p.officeId && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
+                        .map(p => (
+                          <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
+                            <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
+                              <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
+                                {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
+                              </div>
+                              <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
+                              <div className="flex flex-col truncate">
+                                <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
+                                  {!p.isSearched && !searchingPolygonId && (
+                                    <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
                                   )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      togglePolygonVisibility(p.id);
-                                    }}
-                                    className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
-                                    title="Toggle Visibility"
-                                  >
-                                    {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-                                  </button>
-                                  <button
-                                    className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const rect = e.currentTarget.getBoundingClientRect();
-                                      setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id });
-                                    }}
-                                  >
-                                    <MoreVertical size={12} />
-                                  </button>
                                 </div>
                               </div>
-                            ))}
-                        </div>
-                      </div>
-                    ))}
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              {!p.isSearched && (
+                                <button onClick={(e) => handleSearchSavedPolygon(p.id, e)} disabled={!!searchingPolygonId} className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`} title="Search for zips in this area">
+                                  {searchingPolygonId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                                </button>
+                              )}
+                              <button onClick={(e) => { e.stopPropagation(); togglePolygonVisibility(p.id); }} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700" title="Toggle Visibility">
+                                {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                              </button>
+                              <button className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700" onClick={(e) => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id }); }}>
+                                <MoreVertical size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
                   </div>
-                </div>
-              ))}
 
-              {/* Unassigned Offices */}
-              {offices.filter(o => !o.brandId).length > 0 && (
-                <div className="text-xs pt-2 border-t border-gray-100">
-                  <div className="font-bold px-2 py-1 text-gray-500">Unassigned Offices</div>
-                  <div className="pl-4">
-                    {offices.filter(o => !o.brandId).map(office => (
-                      <div key={office.id} className="font-medium px-2 py-1 text-gray-600 flex items-center">
-                        <Building2 size={12} className="mr-1.5 shrink-0" />
-                        {office.name}
+                  {/* Brands List */}
+                  {brands.map(brand => (
+                    <div key={brand.id} className="text-xs">
+                      <div className="font-bold px-2 py-1 text-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-100/50 rounded-md" onClick={() => toggleBrandCollapse(brand.id)}>
+                        <div className="flex items-center">
+                          <ChevronRight size={14} className={`mr-1 text-gray-400 transition-transform ${!collapsedBrands.has(brand.id) && 'rotate-90'}`} />
+                          <span>{brand.name}</span>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenAddOfficeModal(brand.id); }} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add Office</button>
                       </div>
-                    ))}
-                  </div>
+                      {!collapsedBrands.has(brand.id) && (
+                        <div className="pl-4">
+                          {/* Unassigned Offices for this brand */}
+                          {offices.filter(o => o.brandId === brand.id && !savedPolygons.some(p => p.officeId === o.id)).map(office => (
+                            <div key={office.id} className="font-medium px-2 py-1 text-gray-500">{office.name} (No areas)</div>
+                          ))}
+                          {/* Offices with Areas */}
+                          {offices.filter(o => o.brandId === brand.id && savedPolygons.some(p => p.officeId === o.id)).map(office => (
+                            <div key={office.id}>
+                              <div className="font-medium px-2 py-1 text-gray-600 flex items-center cursor-pointer hover:bg-gray-100/50 rounded-md" onClick={() => toggleOfficeCollapse(office.id)}>
+                                <ChevronRight size={14} className={`mr-1 text-gray-400 transition-transform ${!collapsedOffices.has(office.id) && 'rotate-90'}`} />
+                                <Building2 size={12} className="mr-1.5 shrink-0" />
+                                {office.name}
+                              </div>
+                              {!collapsedOffices.has(office.id) && (
+                                <div className="pl-4">
+                                  {savedPolygons
+                                    .filter(p => p.officeId === office.id && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
+                                    .map(p => (
+                                      <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
+                                        <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
+                                          <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
+                                            {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
+                                          </div>
+                                          <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: p.color }}></div>
+                                          <div className="flex flex-col truncate">
+                                            <span className={`truncate font-medium ${!p.visible && 'text-gray-400 line-through'}`}>{p.name}</span>
+                                            <div className="flex items-center space-x-1.5">
+                                              <span className="text-[9px] text-gray-400 font-medium">{p.zips.length} zips</span>
+                                              {!p.isSearched && !searchingPolygonId && (
+                                                <span className="text-[9px] text-amber-600 font-bold">Unsearched</span>
+                                              )}
+                                            </div>
+                                  </div>
+                                        </div>
+                                        <div className="flex items-center space-x-1">
+                                          {!p.isSearched && (
+                                            <button onClick={(e) => handleSearchSavedPolygon(p.id, e)} disabled={!!searchingPolygonId} className={`p-1 rounded transition-colors ${searchingPolygonId === p.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'}`} title="Search for zips in this area">
+                                              {searchingPolygonId === p.id ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                                            </button>
+                                          )}
+                                          <button onClick={(e) => { e.stopPropagation(); togglePolygonVisibility(p.id); }} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700" title="Toggle Visibility">
+                                            {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                                          </button>
+                                          <button className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700" onClick={(e) => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id }); }}>
+                                            <MoreVertical size={12} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Unassigned Offices */}
+                  {offices.filter(o => !o.brandId).length > 0 && (
+                    <div className="text-xs pt-2 border-t border-gray-100">
+                      <div className="font-bold px-2 py-1 text-gray-500">Unassigned Offices</div>
+                      <div className="pl-4">
+                        {offices.filter(o => !o.brandId).map(office => (
+                          <div key={office.id} className="font-medium px-2 py-1 text-gray-600 flex items-center">
+                            <Building2 size={12} className="mr-1.5 shrink-0" />
+                            {office.name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+                {/* Action Buttons */}
+                <div className="p-2 border-t border-gray-100 space-y-2">
+                  {/* Add Selected Polygons' Zips Button */}
+                  {selectedPolygonIds.size > 0 && (
+                    <button onClick={handleAddSelectedToZips} className="w-full py-2 text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-lg shadow-md transition-all flex items-center justify-center space-x-2">
+                      <PlusCircle size={16} />
+                      <span>Add Selected To Zips</span>
+                    </button>
+                  )}
+
+                  {/* Merge Polygons Button */}
+                  {canMergePolygons && (
+                    <button onClick={handleMergePolygons} className="w-full py-2 text-sm font-bold bg-gray-900 text-white hover:bg-black rounded-lg shadow-md transition-all flex items-center justify-center space-x-2">
+                      <Combine size={16} />
+                      <span>Merge Selected Areas</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
