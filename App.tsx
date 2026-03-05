@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle, FileDown, FileUp, Building, Building2, Dot, SquareDashedBottom } from 'lucide-react';
+import { Search, Map as MapIcon, Download, Trash2, List, Save, CheckCircle2, Menu, X, Loader2, PenTool, XCircle, MoreVertical, Edit2, Palette, Type, Eye, EyeOff, Layers, ChevronLeft, ChevronRight, Combine, Briefcase, Star, PlusCircle, FileDown, FileUp, Building, Building2, Dot, SquareDashedBottom, GripVertical } from 'lucide-react';
 import * as turf from '@turf/turf';
 import packageJson from './package.json';
 import MapView from './components/MapView';
@@ -100,6 +100,10 @@ const App: React.FC = () => {
   const [isBrandsPanelCollapsed, setIsBrandsPanelCollapsed] = useState(false);
   const [collapsedBrands, setCollapsedBrands] = useState<Set<string>>(new Set());
   const [collapsedOffices, setCollapsedOffices] = useState<Set<string>>(new Set());
+
+  // Reordering State
+  const [isReordering, setIsReordering] = useState(false);
+  const [draggedItem, setDraggedItem] = useState<{ type: string; id: string } | null>(null);
 
   // Pre-loading Logic for State Centroids
   const loadStateZips = async (stateCode: string) => {
@@ -1086,6 +1090,60 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, type: 'brand' | 'office' | 'area', id: string) => {
+    setDraggedItem({ type, id });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id); // Necessary for Firefox
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+  };
+
+  const handleDrop = (targetId: string, targetType: 'brand' | 'office' | 'area') => {
+    if (!draggedItem || draggedItem.id === targetId || draggedItem.type !== targetType) {
+      setDraggedItem(null);
+      return;
+    }
+
+    const reorder = (list: any[], draggedId: string, targetId: string) => {
+      const draggedIndex = list.findIndex(item => item.id === draggedId);
+      const targetIndex = list.findIndex(item => item.id === targetId);
+      if (draggedIndex === -1 || targetIndex === -1) return list;
+
+      const [removed] = list.splice(draggedIndex, 1);
+      list.splice(targetIndex, 0, removed);
+      return [...list];
+    };
+
+    if (draggedItem.type === 'brand') {
+      setBrands(prev => reorder(prev, draggedItem.id, targetId));
+    } else if (draggedItem.type === 'office') {
+      // Find the brand these offices belong to
+      const targetOffice = offices.find(o => o.id === targetId);
+      if (!targetOffice || !targetOffice.brandId) return;
+
+      const brandOffices = offices.filter(o => o.brandId === targetOffice.brandId);
+      const otherOffices = offices.filter(o => o.brandId !== targetOffice.brandId);
+      const reorderedBrandOffices = reorder(brandOffices, draggedItem.id, targetId);
+
+      setOffices([...otherOffices, ...reorderedBrandOffices]);
+    } else if (draggedItem.type === 'area') {
+      // Find the office these areas belong to
+      const targetArea = savedPolygons.find(p => p.id === targetId);
+      const officeId = targetArea?.officeId || null;
+
+      const officeAreas = savedPolygons.filter(p => p.officeId === officeId);
+      const otherAreas = savedPolygons.filter(p => p.officeId !== officeId);
+      const reorderedOfficeAreas = reorder(officeAreas, draggedItem.id, targetId);
+
+      setSavedPolygons([...otherAreas, ...reorderedOfficeAreas]);
+    }
+
+    setDraggedItem(null);
+  };
+
+
   const handlePolygonClick = (id: string) => {
     if (isDrawing || isDividing) return;
     if (selectedInfoPolygonId === id) {
@@ -1902,7 +1960,10 @@ const App: React.FC = () => {
                 <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Brands</span>
               </div>
               <div className="flex items-center space-x-2">
-                <button onClick={(e) => { e.stopPropagation(); setShowAddBrandModal(true); }} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add</button>
+                <button onClick={(e) => { e.stopPropagation(); setIsReordering(!isReordering); }} className={`text-[10px] font-bold hover:text-blue-700 px-2 py-1 rounded-md transition-colors ${isReordering ? 'bg-blue-100 text-blue-600' : 'text-gray-500'}`}>
+                  Reorder
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setShowAddBrandModal(true); }} className="text-[10px] font-bold text-blue-600 hover:text-blue-700">Add Brand</button>
                 <ChevronRight size={14} className={`text-gray-400 transition-transform ${!isBrandsPanelCollapsed && 'rotate-90'}`} />
               </div>
             </div>
@@ -1930,8 +1991,22 @@ const App: React.FC = () => {
                       {savedPolygons
                         .filter(p => !p.officeId && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
                         .map(p => (
-                          <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
+                          <div 
+                            key={p.id} 
+                            draggable={isReordering}
+                            onDragStart={(e) => handleDragStart(e, 'area', p.id)}
+                            onDragEnd={handleDragEnd}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={() => handleDrop(p.id, 'area')}
+                            onClick={() => !isReordering && handlePolygonClick(p.id)} 
+                            className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors ${isReordering ? 'cursor-move' : 'cursor-pointer'} ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')} ${draggedItem?.id === p.id ? 'opacity-50' : ''}`}
+                          >
                             <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
+                              {isReordering && (
+                                <div className="text-gray-300 mr-1 cursor-grab active:cursor-grabbing">
+                                  <GripVertical size={14} />
+                                </div>
+                              )}
                               <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
                                 {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
                               </div>
@@ -1966,15 +2041,22 @@ const App: React.FC = () => {
 
                   {/* Brands List */}
                   {brands.map(brand => (
-                    <div key={brand.id} className="text-xs">
-                      <div className="font-bold px-2 py-1 text-gray-800 flex justify-between items-center cursor-pointer hover:bg-gray-100/50 rounded-md" onClick={() => toggleBrandCollapse(brand.id)}>
-                        <div className="flex items-center">
+                    <div key={brand.id} className="text-xs" draggable={isReordering} onDragStart={(e) => handleDragStart(e, 'brand', brand.id)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} onDrop={() => handleDrop(brand.id, 'brand')}>
+                      <div className={`font-bold px-2 py-1 text-gray-800 flex justify-between items-center hover:bg-gray-100/50 rounded-md ${isReordering ? 'cursor-move' : 'cursor-pointer'} ${draggedItem?.id === brand.id ? 'opacity-50' : ''}`} onClick={() => !isReordering && toggleBrandCollapse(brand.id)}>
+                        <div className="flex items-center flex-1 min-w-0">
+                          {isReordering && (
+                            <div className="text-gray-300 mr-1 cursor-grab active:cursor-grabbing">
+                              <GripVertical size={14} />
+                            </div>
+                          )}
                           <ChevronRight size={14} className={`mr-1 text-gray-400 transition-transform ${!collapsedBrands.has(brand.id) && 'rotate-90'}`} />
                           <span className="truncate">{brand.name}</span>
                         </div>
-                        <button onClick={(e) => handleBrandContextMenu(brand.id, e)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700">
-                          <MoreVertical size={12} />
-                        </button>
+                        {!isReordering && (
+                          <button onClick={(e) => handleBrandContextMenu(brand.id, e)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700">
+                            <MoreVertical size={12} />
+                          </button>
+                        )}
                       </div>
                       {!collapsedBrands.has(brand.id) && (
                         <div className="pl-4">
@@ -1985,23 +2067,43 @@ const App: React.FC = () => {
                           {/* Offices with Areas */}
                           {offices.filter(o => o.brandId === brand.id && savedPolygons.some(p => p.officeId === o.id)).map(office => (
                             <div key={office.id}>
-                              <div className="font-medium px-2 py-1 text-gray-600 flex items-center justify-between cursor-pointer hover:bg-gray-100/50 rounded-md" onClick={() => toggleOfficeCollapse(office.id)}>
-                                <div className="flex items-center">
+                              <div 
+                                draggable={isReordering}
+                                onDragStart={(e) => { e.stopPropagation(); handleDragStart(e, 'office', office.id); }}
+                                onDragEnd={(e) => { e.stopPropagation(); handleDragEnd(); }}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={(e) => { e.stopPropagation(); handleDrop(office.id, 'office'); }}
+                                className={`font-medium px-2 py-1 text-gray-600 flex items-center justify-between hover:bg-gray-100/50 rounded-md ${isReordering ? 'cursor-move' : 'cursor-pointer'} ${draggedItem?.id === office.id ? 'opacity-50' : ''}`} 
+                                onClick={() => !isReordering && toggleOfficeCollapse(office.id)}
+                              >
+                                <div className="flex items-center flex-1 min-w-0">
+                                  {isReordering && (
+                                    <div className="text-gray-300 mr-1 cursor-grab active:cursor-grabbing">
+                                      <GripVertical size={14} />
+                                    </div>
+                                  )}
                                   <ChevronRight size={14} className={`mr-1 text-gray-400 transition-transform ${!collapsedOffices.has(office.id) && 'rotate-90'}`} />
                                   <Building2 size={12} className="mr-1.5 shrink-0" />
                                   <span className="truncate">{office.name}</span>
                                 </div>
-                                <button onClick={(e) => handleOfficeContextMenu(office.id, e)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700">
-                                  <MoreVertical size={12} />
-                                </button>
+                                {!isReordering && (
+                                  <button onClick={(e) => handleOfficeContextMenu(office.id, e)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700">
+                                    <MoreVertical size={12} />
+                                  </button>
+                                )}
                               </div>
                               {!collapsedOffices.has(office.id) && (
                                 <div className="pl-4">
                                   {savedPolygons
                                     .filter(p => p.officeId === office.id && (polygonFilter ? p.name.toLowerCase().includes(polygonFilter.toLowerCase()) || p.trades?.some(t => t.name.toLowerCase().includes(polygonFilter.toLowerCase())) : true))
                                     .map(p => (
-                                      <div key={p.id} onClick={() => handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors cursor-pointer ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')}`}>
+                                      <div key={p.id} draggable={isReordering} onDragStart={(e) => { e.stopPropagation(); handleDragStart(e, 'area', p.id); }} onDragEnd={(e) => { e.stopPropagation(); handleDragEnd(); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.stopPropagation(); handleDrop(p.id, 'area'); }} onClick={() => !isReordering && handlePolygonClick(p.id)} className={`flex items-center justify-between text-xs group rounded px-2 py-1.5 transition-colors ${isReordering ? 'cursor-move' : 'cursor-pointer'} ${selectedInfoPolygonId === p.id ? 'bg-blue-100' : (selectedPolygonIds.has(p.id) ? 'bg-blue-50/50' : 'hover:bg-gray-50')} ${draggedItem?.id === p.id ? 'opacity-50' : ''}`}>
                                         <div className="flex items-center text-gray-700 flex-1 min-w-0 mr-2">
+                                          {isReordering && (
+                                            <div className="text-gray-300 mr-1 cursor-grab active:cursor-grabbing">
+                                              <GripVertical size={14} />
+                                            </div>
+                                          )}
                                           <div onClick={(e) => { e.stopPropagation(); togglePolygonSelection(p.id, e); }} className={`w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors cursor-pointer shrink-0 ${selectedPolygonIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
                                             {selectedPolygonIds.has(p.id) && <CheckCircle2 size={10} className="text-white" />}
                                           </div>
@@ -2025,9 +2127,11 @@ const App: React.FC = () => {
                                           <button onClick={(e) => { e.stopPropagation(); togglePolygonVisibility(p.id); }} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700" title="Toggle Visibility">
                                             {p.visible ? <Eye size={12} /> : <EyeOff size={12} />}
                                           </button>
-                                          <button className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700" onClick={(e) => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id }); }}>
-                                            <MoreVertical size={12} />
-                                          </button>
+                                          {!isReordering && (
+                                            <button className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-gray-700" onClick={(e) => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left - 150, y: rect.top, polygonId: p.id }); }}>
+                                              <MoreVertical size={12} />
+                                            </button>
+                                          )}
                                         </div>
                                       </div>
                                     ))}
