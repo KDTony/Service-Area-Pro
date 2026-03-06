@@ -166,7 +166,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                                         </div>
                                       )}
                                     </div>
-                                    {rep.priority > 0 && <div className="flex items-center space-x-0.5 text-amber-500 ml-2"><Star size={10} fill="currentColor" /><span className="font-bold text-[10px]">{rep.priority}</span></div>}
+                                    <div className="flex items-center space-x-1 ml-2 shrink-0">
+                                      {rep.priority > 0 && (
+                                        <div className="text-xs font-bold text-blue-600">x{rep.priority}</div>
+                                      )}
+                                      {rep.isBackup && (
+                                        <div className="text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">BU</div>
+                                      )}
+                                      {rep.isWeekend && (
+                                        <div className="text-[10px] font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded">WE</div>
+                                      )}
+                                    </div>
                                   </div>
                                 ))}
                             </div>

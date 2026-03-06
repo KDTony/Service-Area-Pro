@@ -13,6 +13,8 @@ export interface SalesRep {
   name: string;
   priority: number; // 1-5
   notes?: string;
+  isBackup?: boolean;
+  isWeekend?: boolean
 }
 
 export interface Trade {

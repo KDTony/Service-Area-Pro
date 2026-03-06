@@ -212,11 +212,20 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
                                 <X size={12} />
                               </button>
                             ) : (
-                              <div className="flex items-center space-x-1">
+                              <div className="flex items-center space-x-2">
                                 {rep.priority > 0 && (
-                                  <div className="flex items-center space-x-0.5 text-amber-500">
-                                    <Star size={10} fill="currentColor" />
-                                    <span className="text-xs font-bold text-gray-500">{rep.priority}</span>
+                                  <div className="flex items-center space-x-0.5">
+                                    <span className="text-xs font-bold text-blue-600">x{rep.priority}</span>
+                                  </div>
+                                )}
+                                {rep.isBackup && (
+                                  <div className="text-xs font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
+                                    BU
+                                  </div>
+                                )}
+                                {rep.isWeekend && (
+                                  <div className="text-xs font-bold text-green-600 bg-green-100 px-1.5 py-0.5 rounded">
+                                    WE
                                   </div>
                                 )}
                               </div>
@@ -256,21 +265,40 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
 
                           {isEditing && (
                             <div className="flex items-center justify-between pt-1 border-t border-gray-100">
-                              <div className="flex items-center space-x-1">
+                              <div className="flex items-center space-x-1.5">
                                 {priorityOptions.map((p) => (
                                   <button
                                     key={p}
                                     onClick={() => handleUpdateRep(trade.id, rep.id, { priority: rep.priority === p ? 0 : p })}
                                     className={`
-                                      w-5 h-5 rounded-md text-[10px] font-bold transition-colors flex items-center justify-center
-                                      ${rep.priority === p ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}
+                                      w-6 h-6 rounded-md text-xs font-bold transition-colors flex items-center justify-center
+                                      ${rep.priority === p ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-blue-500 hover:text-white'}
                                     `}
                                   >
                                     {p}
                                   </button>
                                 ))}
+                                <div className="w-px h-4 bg-gray-200 mx-1"></div>
+                                <button
+                                  onClick={() => handleUpdateRep(trade.id, rep.id, { isBackup: !rep.isBackup })}
+                                  className={`
+                                    w-7 h-6 rounded-md text-xs font-bold transition-colors flex items-center justify-center
+                                    ${rep.isBackup ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-red-500 hover:text-white'}
+                                  `}
+                                >
+                                  BU
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateRep(trade.id, rep.id, { isWeekend: !rep.isWeekend })}
+                                  className={`
+                                    w-7 h-6 rounded-md text-xs font-bold transition-colors flex items-center justify-center
+                                    ${rep.isWeekend ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-green-500 hover:text-white'}
+                                  `}
+                                >
+                                  WE
+                                </button>
                               </div>
-                              <span className="text-[10px] font-bold text-gray-400">Rep Priority</span>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase">Multiplier</span>
                             </div>
                           )}
                         </div>
