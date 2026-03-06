@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Trash2, Save, Edit2, User, Briefcase, FileText, Star, Users } from 'lucide-react';
+import { X, Plus, Trash2, Save, Edit2, User, Briefcase, FileText, Star, Users, MessageSquarePlus, Pencil, Check } from 'lucide-react';
 import { SavedPolygon, Trade, SalesRep, Brand, Office } from '../types';
 
 interface PolygonInfoPanelProps {
@@ -16,6 +16,7 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
   const [notes, setNotes] = useState(polygon.notes || '');
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(polygon.brandId);
   const [selectedOfficeId, setSelectedOfficeId] = useState<string | null>(polygon.officeId);
+  const [editingRepNote, setEditingRepNote] = useState<{ repId: string; text: string } | null>(null);
 
   const totalReps = useMemo(() => {
     return trades.reduce((sum, trade) => sum + trade.reps.length, 0);
@@ -25,6 +26,7 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
   useEffect(() => {
     setTrades(polygon.trades || []);
     setNotes(polygon.notes || '');
+    setEditingRepNote(null);
     setIsEditing(false);
   }, [polygon.id, polygon.trades, polygon.notes]);
   useEffect(() => {
@@ -35,7 +37,8 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
     const newTrade: Trade = {
       id: Date.now().toString(),
       name: '',
-      reps: []
+      reps: [],
+      
     };
     setTrades([...trades, newTrade]);
   };
@@ -52,7 +55,8 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
     const newRep: SalesRep = {
       id: Date.now().toString(),
       name: '',
-      priority: 3
+      priority: 3,
+      notes: ''
     };
     setTrades(trades.map(t => t.id === tradeId ? { ...t, reps: [...t.reps, newRep] } : t));
   };
@@ -71,6 +75,13 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
   const handleSave = () => {
     onSave(polygon.id, { trades, notes, brandId: selectedBrandId, officeId: selectedOfficeId });
     setIsEditing(false);
+    setEditingRepNote(null);
+  };
+
+  const handleSaveRepNote = (tradeId: string) => {
+    if (!editingRepNote) return;
+    handleUpdateRep(tradeId, editingRepNote.repId, { notes: editingRepNote.text });
+    setEditingRepNote(null);
   };
 
   return (
@@ -178,7 +189,7 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
                   {/* Reps */}
                   <div className="space-y-2">
                     {trade.reps.map((rep) => {
-                      const priorityOptions = [1, 2, 3, 4, 5, 0]; // 0 represents "Alt"
+                      const priorityOptions = [1, 2, 3, 4, 5];
                       return (
                         <div key={rep.id} className="bg-white rounded-lg p-2 border border-gray-100 flex flex-col space-y-2">
                           <div className="flex items-center justify-between">
@@ -201,28 +212,65 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
                                 <X size={12} />
                               </button>
                             ) : (
-                              <div className="text-xs font-bold text-gray-500 ml-2">
-                                {rep.priority > 0 ? `x${rep.priority}` : 'Alt'}
+                              <div className="flex items-center space-x-1">
+                                {rep.priority > 0 && (
+                                  <div className="flex items-center space-x-0.5 text-amber-500">
+                                    <Star size={10} fill="currentColor" />
+                                    <span className="text-xs font-bold text-gray-500">{rep.priority}</span>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
+                          
+                          {/* Rep Notes */}
+                          {isEditing ? (
+                            editingRepNote?.repId === rep.id ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={editingRepNote.text}
+                                  onChange={(e) => setEditingRepNote({ repId: rep.id, text: e.target.value })}
+                                  placeholder="Add special notes for this rep..."
+                                  className="w-full h-16 p-2 text-xs border rounded-md focus:ring-1 focus:ring-blue-500 outline-none resize-none bg-white"
+                                />
+                                <div className="flex justify-end">
+                                  <button onClick={() => handleSaveRepNote(trade.id)} className="flex items-center text-xs font-bold bg-blue-500 text-white px-2 py-1 rounded-md hover:bg-blue-600">
+                                    <Check size={14} className="mr-1" /> Save Note
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button onClick={() => setEditingRepNote({ repId: rep.id, text: rep.notes || '' })} className="flex items-center space-x-1 text-xs text-gray-500 hover:text-blue-600 transition-colors w-full justify-start pt-1 border-t">
+                                {rep.notes ? <Pencil size={12} /> : <MessageSquarePlus size={12} />}
+                                <span>{rep.notes ? 'Edit Note' : 'Add Note'}</span>
+                              </button>
+                            )
+                          ) : (
+                            rep.notes && (
+                              <details className="pt-2 border-t border-gray-100">
+                                <summary className="text-xs font-bold text-gray-400 cursor-pointer select-none">View Note</summary>
+                                <p className="text-xs text-gray-600 mt-1.5 whitespace-pre-wrap">{rep.notes}</p>
+                              </details>
+                            )
+                          )}
+
                           {isEditing && (
                             <div className="flex items-center justify-between pt-1 border-t border-gray-100">
                               <div className="flex items-center space-x-1">
                                 {priorityOptions.map((p) => (
                                   <button
                                     key={p}
-                                    onClick={() => handleUpdateRep(trade.id, rep.id, { priority: p })}
+                                    onClick={() => handleUpdateRep(trade.id, rep.id, { priority: rep.priority === p ? 0 : p })}
                                     className={`
-                                      w-6 h-6 rounded-md text-[10px] font-bold transition-colors
+                                      w-5 h-5 rounded-md text-[10px] font-bold transition-colors flex items-center justify-center
                                       ${rep.priority === p ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}
                                     `}
                                   >
-                                    {p === 0 ? 'Alt' : p}
+                                    {p}
                                   </button>
                                 ))}
                               </div>
-                              <span className="text-[10px] font-bold text-gray-400">Priority</span>
+                              <span className="text-[10px] font-bold text-gray-400">Rep Priority</span>
                             </div>
                           )}
                         </div>
@@ -271,6 +319,7 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
                 setIsEditing(false);
                 setTrades(polygon.trades || []);
                 setNotes(polygon.notes || '');
+                setEditingRepNote(null);
               }}
               className="flex-1 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-xl transition-colors"
             >

@@ -12,6 +12,7 @@ export interface SalesRep {
   id: string;
   name: string;
   priority: number; // 1-5
+  notes?: string;
 }
 
 export interface Trade {

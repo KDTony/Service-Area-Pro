@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp, HardDrive } from 'lucide-react';
+import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp, HardDrive, MessageSquareText } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { ZipCodeData, SavedPolygon } from '../types';
 
@@ -157,10 +157,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 .sort((a, b) => b.priority - a.priority)
                                 .map(rep => (
                                   <div key={rep.id} className="flex items-center justify-between bg-gray-50 px-2 py-1 rounded text-[11px]">
-                                    <span className="text-gray-700 font-medium">{rep.name}</span>
-                                   <div className="text-[10px] font-bold text-gray-500 ml-2">
-                                     {rep.priority > 0 ? `x${rep.priority}` : 'Alt'}
-                                   </div>
+                                    <div className="flex flex-col">
+                                      <span className="text-gray-700 font-medium">{rep.name}</span>
+                                      {rep.notes && (
+                                        <div className="flex items-start text-gray-500 mt-1">
+                                          <MessageSquareText size={10} className="mr-1 mt-0.5 shrink-0" />
+                                          <p className="text-[10px] italic leading-tight">{rep.notes}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {rep.priority > 0 && <div className="flex items-center space-x-0.5 text-amber-500 ml-2"><Star size={10} fill="currentColor" /><span className="font-bold text-[10px]">{rep.priority}</span></div>}
                                   </div>
                                 ))}
                             </div>
