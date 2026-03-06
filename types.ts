@@ -35,6 +35,7 @@ export interface SavedPolygon {
   isSearched?: boolean; // New flag to track if we have performed the search for this area
   trades?: Trade[];
   notes?: string;
+  isNoGo?: boolean;
 }
 
 export interface ServiceAreaMap {

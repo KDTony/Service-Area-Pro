@@ -66,6 +66,7 @@ const App: React.FC = () => {
 
   // Polygon Drawing State
   const [isDrawing, setIsDrawing] = useState(false);
+  const [isDrawingNoGo, setIsDrawingNoGo] = useState(false);
   const [polygonPoints, setPolygonPoints] = useState<[number, number][]>([]);
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null);
 
@@ -94,6 +95,7 @@ const App: React.FC = () => {
   const [editingBrandName, setEditingBrandName] = useState('');
   const [editingOfficeName, setEditingOfficeName] = useState('');
   const [deletingPolygonId, setDeletingPolygonId] = useState<string | null>(null);
+
 
   // UI State for collapsible panels
   const [isLayersPanelCollapsed, setIsLayersPanelCollapsed] = useState(false);
@@ -227,12 +229,18 @@ const App: React.FC = () => {
       setNewPolygonName(`Area ${savedPolygons.length + 1}`);
       setNewPolygonColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
     }
-    setShowNameModal(true);
+    if (isDrawingNoGo) {
+      // No-go zones don't need a name/color modal, save them directly.
+      savePolygon(true);
+    } else {
+      setShowNameModal(true);
+    }
   };
 
   // 2. Actually Save the Polygon to State
-  const savePolygon = async () => {
-    if (!newPolygonName.trim()) return;
+  const savePolygon = async (isNoGoOverride = false) => {
+    const name = isNoGoOverride ? `No-Go Zone ${savedPolygons.filter(p => p.isNoGo).length + 1}` : newPolygonName;
+    if (!name.trim()) return;
     
     // Optimized Point-in-Polygon loop using activeZips
     const polyCoords = polygonPoints.map(p => [p[1], p[0]]);
@@ -253,8 +261,8 @@ const App: React.FC = () => {
 
     const newPoly: SavedPolygon = {
       id: editingPolygon ? editingPolygon.id : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: newPolygonName,
-      color: newPolygonColor,
+      name: name,
+      color: isNoGoOverride ? '#333333' : newPolygonColor,
       points: [...polygonPoints],
       brandId: null,
       officeId: null,
@@ -262,7 +270,8 @@ const App: React.FC = () => {
       visible: true,
       isSearched: true,
       trades: editingPolygon ? editingPolygon.trades : [],
-      notes: editingPolygon ? editingPolygon.notes : ''
+      notes: editingPolygon ? editingPolygon.notes : '',
+      isNoGo: isDrawingNoGo || isNoGoOverride,
     };
     
     setSavedPolygons(prev => [...prev, newPoly]);
@@ -275,12 +284,14 @@ const App: React.FC = () => {
     setEditingPolygon(null);
     setPolygonPoints([]);
     setSelectedVertexIndex(null);
+    setIsDrawingNoGo(false);
     setIsDrawing(false);
     setShowNameModal(false);
     setNewPolygonName('');
 
     // Ask for search
-    if (wasEditing && window.confirm("Geometry updated. Would you like to search for new zip codes in the modified area?")) {
+    // Don't ask for No-Go zones, they don't need a search confirmation.
+    if (wasEditing && !newPoly.isNoGo && window.confirm("Geometry updated. Would you like to search for new zip codes in the modified area?")) {
       if (oldPolyPoints) {
         handleSearchAddedArea(polyId, oldPolyPoints, newPoly.points, containedZips);
       } else {
@@ -295,6 +306,7 @@ const App: React.FC = () => {
       setEditingPolygon(null);
     }
     setPolygonPoints([]);
+    setIsDrawingNoGo(false);
     setSelectedVertexIndex(null);
     setIsDrawing(false);
     setShowNameModal(false);
@@ -305,7 +317,7 @@ const App: React.FC = () => {
   // 3. Search logic for an existing saved polygon
   const handleSearchSavedPolygon = async (id: string, e?: React.MouseEvent, points?: [number, number][]) => {
     if (e) e.stopPropagation();
-    
+
     const poly = savedPolygons.find(p => p.id === id);
     const searchPoints = points || poly?.points;
     if (!searchPoints) return;
@@ -1250,11 +1262,19 @@ const App: React.FC = () => {
 
   const handleAddSelectedToZips = () => {
     if (selectedPolygonIds.size === 0) return;
-
+    const noGoZones = savedPolygons.filter(p => p.isNoGo);
+    const noGoZips = new Set<string>();
+    for (const zone of noGoZones) {
+      zone.zips.forEach(zip => noGoZips.add(zip));
+    }
     const zipsToAdd = new Set<string>();
     savedPolygons.forEach(p => {
       if (selectedPolygonIds.has(p.id)) {
-        p.zips.forEach(zip => zipsToAdd.add(zip));
+        p.zips.forEach(zip => {
+          if (!noGoZips.has(zip)) {
+            zipsToAdd.add(zip);
+          }
+        });
       }
     });
 
@@ -1329,12 +1349,12 @@ const App: React.FC = () => {
     // If moving a point, select it
     setSelectedVertexIndex(index);
   }, []);
-
-  const toggleDrawingMode = () => {
+  const toggleDrawingMode = (isNoGo = false) => {
     if (isDrawing) {
       discardPolygon();
     } else {
       setIsDrawing(true);
+      setIsDrawingNoGo(isNoGo);
     }
     setSelectedVertexIndex(null);
   };
@@ -1342,6 +1362,7 @@ const App: React.FC = () => {
   const selectedZipList = useMemo(() => {
     return activeZips.filter(z => selectedZips.has(z.zip));
   }, [activeZips, selectedZips]);
+
 
   const canMergePolygons = useMemo(() => {
     if (selectedPolygonIds.size < 2) {
@@ -1424,7 +1445,8 @@ const App: React.FC = () => {
           setRadius={setRadius}
           onSearch={handleLeadSearch}
           loading={loading && shouldFitBounds} 
-          selectedZipList={activeZips.filter(z => selectedZips.has(z.zip))}
+          activeZips={activeZips}
+          selectedZipList={selectedZipList}
           onClear={clearSelection}
           onExport={() => setIsExportOpen(true)}
           toggleZipSelection={toggleZipSelection}
@@ -1602,7 +1624,7 @@ const App: React.FC = () => {
                 <div className="flex space-x-3">
                   <button onClick={discardPolygon} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Discard</button>
                   <button 
-                    onClick={polygonsToName.length > 0 ? handleSaveNextQueuedPolygon : savePolygon} 
+                    onClick={() => polygonsToName.length > 0 ? handleSaveNextQueuedPolygon() : savePolygon()}
                     className="flex-1 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded-lg shadow-lg"
                   >
                     {polygonsToName.length > 0 ? 'Save & Next' : 'Save Geometry'}
@@ -1654,17 +1676,26 @@ const App: React.FC = () => {
 
         {/* Delete Polygon Confirmation Modal */}
         {deletingPolygonId && (
-          <div className="absolute inset-0 z-[700] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-             <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-lg font-bold text-red-600 mb-2">Are you sure?</h3>
-                <p className="text-sm text-gray-600 mb-6">Deleting a Service Area is permanent and cannot be undone! Are you sure you wish to continue?</p>
-                
-                <div className="flex space-x-3">
-                  <button onClick={() => setDeletingPolygonId(null)} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
-                  <button onClick={confirmDeletePolygon} className="flex-1 py-2 bg-red-600 text-white font-bold hover:bg-red-700 rounded-lg shadow-lg">Yes, proceed</button>
-                </div>
-             </div>
-          </div>
+          (() => {
+            const polyToDelete = savedPolygons.find(p => p.id === deletingPolygonId);
+            const isNoGo = polyToDelete?.isNoGo;
+            return (
+              <div className="absolute inset-0 z-[700] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                 <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md animate-in zoom-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
+                    <h3 className="text-lg font-bold text-red-600 mb-2">Are you sure?</h3>
+                    <p className="text-sm text-gray-600 mb-4">You are about to permanently delete the following {isNoGo ? 'zone' : 'area'}:</p>
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center mb-6">
+                      <span className="font-bold text-gray-800">{polyToDelete?.name || 'Unnamed Area'}</span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-6">This action cannot be undone. Are you sure you wish to continue?</p>
+                    <div className="flex space-x-3">
+                      <button onClick={() => setDeletingPolygonId(null)} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
+                      <button onClick={confirmDeletePolygon} className="flex-1 py-2 bg-red-600 text-white font-bold hover:bg-red-700 rounded-lg shadow-lg">Yes, Delete</button>
+                    </div>
+                 </div>
+              </div>
+            );
+          })()
         )}
 
 
@@ -1811,10 +1842,10 @@ const App: React.FC = () => {
            
            {/* Polygon Controls */}
            <div className="pointer-events-auto flex items-center space-x-2">
-              {isDrawing ? (
+              {isDrawing && !isDrawingNoGo ? (
                  <div className="flex items-center space-x-2 animate-in slide-in-from-bottom-4 fade-in">
-                    <button 
-                      onClick={toggleDrawingMode}
+                    <button
+                      onClick={() => toggleDrawingMode()}
                       className="bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95"
                     >
                       <XCircle size={16} />
@@ -1832,7 +1863,7 @@ const App: React.FC = () => {
                       </button>
                     )}
                     <button 
-                      onClick={handleInitiateSave}
+                      onClick={() => handleInitiateSave()}
                       disabled={polygonPoints.length < 3}
                       className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95"
                     >
@@ -1840,6 +1871,22 @@ const App: React.FC = () => {
                       <span>Save Area ({polygonPoints.length} pts)</span>
                     </button>
                  </div>
+              ) : isDrawing && isDrawingNoGo ? (
+                <div className="flex items-center space-x-2 animate-in slide-in-from-bottom-4 fade-in">
+                  <button onClick={() => toggleDrawingMode()} className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95">
+                    <XCircle size={16} />
+                    <span>Cancel</span>
+                  </button>
+                  {selectedVertexIndex !== null && (
+                    <button onClick={deleteSelectedVertex} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95" title="Delete Selected Point">
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                  <button onClick={() => handleInitiateSave()} disabled={polygonPoints.length < 3} className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white px-4 py-2.5 rounded-full shadow-lg font-bold text-sm flex items-center space-x-2 transition-all active:scale-95">
+                    <Save size={16} />
+                    <span>Save No-Go Zone</span>
+                  </button>
+                </div>
               ) : isDividing ? (
                 <div className="flex items-center space-x-2 animate-in slide-in-from-bottom-4 fade-in">
                    <button 
@@ -1865,14 +1912,20 @@ const App: React.FC = () => {
            </div>
 
            {/* Drawing Mode Toggle (Always visible if not loading) */}
-           {!loading && !isDrawing && (
-              <button 
-                onClick={toggleDrawingMode}
-                className="pointer-events-auto bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full shadow-lg font-medium text-xs flex items-center space-x-2 transition-all active:scale-95 opacity-90 hover:opacity-100"
+           {!loading && !isDrawing && !isDividing && (
+            <div className="flex items-center space-x-2 pointer-events-auto">
+              <button
+                onClick={() => toggleDrawingMode(false)}
+                className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full shadow-lg font-medium text-xs flex items-center space-x-2 transition-all active:scale-95 opacity-90 hover:opacity-100"
               >
                 <PenTool size={12} />
-                <span>Draw Custom Area</span>
+                <span>Draw Service Area</span>
               </button>
+              <button onClick={() => toggleDrawingMode(true)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-full shadow-lg font-medium text-xs flex items-center space-x-2 transition-all active:scale-95 opacity-90 hover:opacity-100">
+                <XCircle size={12} />
+                <span>Draw No-Go Zone</span>
+              </button>
+            </div>
            )}
            
            {/* Hint text if drawing */}

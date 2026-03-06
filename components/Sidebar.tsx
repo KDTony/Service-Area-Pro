@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp, HardDrive, MessageSquareText } from 'lucide-react';
+import { Search, Map as MapIcon, Download, Trash2, List, Info, Loader2, X, ChevronRight, MapPin, MousePointerClick, PenTool, Save, UploadCloud, DownloadCloud, Layers, Combine, Briefcase, Star, FileDown, FileUp, HardDrive, MessageSquareText, XCircle } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { ZipCodeData, SavedPolygon } from '../types';
 
@@ -10,6 +10,7 @@ interface SidebarProps {
   setRadius: (val: number) => void;
   onSearch: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
   loading: boolean;
+  activeZips: ZipCodeData[];
   selectedZipList: ZipCodeData[];
   onClear: () => void;
   onExport: () => void;
@@ -24,7 +25,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({
   initialZip, setInitialZip, radius, setRadius, onSearch, loading,
-  selectedZipList, onClear, onExport, toggleZipSelection, onSaveLocal, onExportFile, onImportFile,
+  activeZips, selectedZipList, onClear, onExport, toggleZipSelection, onSaveLocal, onExportFile, onImportFile,
   onLoadLocal, savedPolygons, leadPin
 }) => {
 
@@ -121,6 +122,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Matching Areas Info */}
           {extractedZip && (
+            <>
+            {savedPolygons.some(p => p.isNoGo && (p.zips.includes(extractedZip) || (leadPin && turf.booleanPointInPolygon(turf.point([leadPin[1], leadPin[0]]), turf.polygon([p.points.map(pt => [pt[1], pt[0]])]))))) && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-center shadow-sm animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center justify-center text-red-700">
+                  <XCircle size={16} className="mr-2" />
+                  <span className="font-bold text-sm">No-Go Zone</span>
+                </div>
+                <p className="text-xs text-red-600 mt-1">This location falls within a designated no-go zone.</p>
+              </div>
+            )}
             <div className="mt-4 space-y-3">
               {savedPolygons
                 .filter(p => {                  // Match by zip code if initialZip looks like one
@@ -138,7 +149,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   }
                   return false;
                 })
-                .map(poly => (
+                .map(poly => !poly.isNoGo && (
                   <div key={poly.id} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm animate-in fade-in slide-in-from-top-2">
                     <div className="flex items-center space-x-2 mb-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: poly.color }}></div>
@@ -187,9 +198,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       <p className="text-[10px] text-gray-400 italic">No trades assigned to this area.</p>
                     )}
                   </div>
-                ))}
+                )
+              )}
             </div>
-          )}
+          </>)}
 
           <div className="mt-4 flex flex-col space-y-3 p-3 bg-blue-50 rounded-lg text-blue-800 text-xs">
           </div>

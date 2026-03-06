@@ -97,6 +97,41 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
         </button>
       </div>
 
+      {polygon.isNoGo ? (
+        <div className="flex-1 flex flex-col">
+          <div className="overflow-y-auto p-4 space-y-6 custom-scrollbar flex-1">
+            <div className="p-3 rounded-xl bg-red-50 border border-red-100 text-center">
+              <span className="text-sm font-bold text-red-700">No-Go Zone</span>
+              <p className="text-xs text-red-600 mt-1">Zips in this area are excluded from searches and selections.</p>
+            </div>
+            {/* Notes Section */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center">
+                <FileText size={12} className="mr-1" /> Notes
+              </h4>
+              {isEditing ? (
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Enter notes for this no-go zone..." className="w-full h-48 p-3 text-xs border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none resize-none bg-gray-50" />
+              ) : (
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 min-h-[60px]">
+                  <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{notes || 'No notes added yet.'}</p>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Footer is outside the scrollable area */}
+          <div className="p-4 border-t bg-gray-50 rounded-b-2xl flex space-x-3">
+            {isEditing ? (
+              <>
+                <button onClick={() => { setIsEditing(false); setNotes(polygon.notes || ''); }} className="flex-1 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-xl transition-colors">Cancel</button>
+                <button onClick={handleSave} className="flex-1 py-2 text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"><Save size={16} /><span>Save Changes</span></button>
+              </>
+            ) : (
+              <button onClick={() => setIsEditing(true)} className="w-full py-2 text-sm font-bold bg-gray-900 text-white hover:bg-black rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"><Edit2 size={16} /><span>Edit Notes</span></button>
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
         {/* Stats */}
         <div className="grid grid-cols-3 gap-2">
@@ -338,39 +373,38 @@ const PolygonInfoPanel: React.FC<PolygonInfoPanelProps> = ({ polygon, onClose, o
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="p-4 border-t bg-gray-50 rounded-b-2xl flex space-x-3">
-        {isEditing ? (
-          <>
-            <button
-              onClick={() => {
-                setIsEditing(false);
-                setTrades(polygon.trades || []);
-                setNotes(polygon.notes || '');
-                setEditingRepNote(null);
-              }}
-              className="flex-1 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-xl transition-colors"
-            >
-              Cancel
+        {/* Footer */}
+        <div className="p-4 border-t bg-gray-50 rounded-b-2xl flex space-x-3">
+          {isEditing ? (
+            <>
+              <button
+                onClick={() => {
+                  setIsEditing(false);
+                  setTrades(polygon.trades || []);
+                  setNotes(polygon.notes || '');
+                  setEditingRepNote(null);
+                }}
+                className="flex-1 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                className="flex-1 py-2 text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
+              >
+                <Save size={16} />
+                <span>Save Changes</span>
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setIsEditing(true)} className="w-full py-2 text-sm font-bold bg-gray-900 text-white hover:bg-black rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2">
+              <Edit2 size={16} />
+              <span>Edit Details</span>
             </button>
-            <button
-              onClick={handleSave}
-              className="flex-1 py-2 text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
-            >
-              <Save size={16} />
-              <span>Save Changes</span>
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={() => setIsEditing(true)}
-            className="w-full py-2 text-sm font-bold bg-gray-900 text-white hover:bg-black rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
-          >
-            <Edit2 size={16} />
-            <span>Edit Details</span>
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      </>
+      )}
     </div>
   );
 };

@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ZipCodeData, SavedPolygon, Office } from '../types';
 import { GripHorizontal } from 'lucide-react';
+import { MapPin, XCircle, Dot } from 'lucide-react';
 
 declare const L: any;
 
@@ -33,7 +34,7 @@ interface MapViewProps {
   onPolygonClick?: (id: string) => void;
   offices?: Office[];
   selectedInfoPolygonId?: string | null;
-  onOfficeClick?: (officeId: string) => void;
+  onOfficeClick?: (id: string) => void;
   onLeadPinContextMenu?: (x: number, y: number) => void;
   leadPin?: [number, number] | null;
 }
@@ -199,21 +200,31 @@ const MapView: React.FC<MapViewProps> = ({
         const isSelected = selectedPolygonIds.has(poly.id);
         const isActive = selectedInfoPolygonId === poly.id;
 
-        const layer = L.polygon(poly.points, {
+        const styleOptions = poly.isNoGo ? {
+            color: '#000000',
+            weight: 3,
+            opacity: 0.9,
+            fillColor: '#000000',
+            fillOpacity: 0.1,
+            dashArray: '10, 10',
+            interactive: !isDrawing && !isDividing,
+            pane: 'polygonPane'
+        } : {
             color: isActive ? '#0f172a' : (isBeingDivided ? '#3b82f6' : (isSelected ? '#2563eb' : poly.color)), 
             weight: isActive ? 5 : (isBeingDivided || isSelected) ? 4 : 2,
             opacity: 1, // Solid line
             fillColor: poly.color,
             fillOpacity: isBeingDivided ? 0.1 : (isActive ? 0.5 : (isSelected ? 0.4 : 0.2)),
-            interactive: !isDividing, // Make polygons non-clickable during division
+            interactive: !isDrawing && !isDividing,
             dashArray: isBeingDivided ? '5, 5' : null,
             pane: 'polygonPane'
-        });
+        };
+
+        const layer = L.polygon(poly.points, styleOptions);
 
         // Click handler for selection
         layer.on('click', (e: any) => {
             L.DomEvent.stopPropagation(e);
-            if (isDrawingRef.current) return;
             if (onPolygonClick) {
                 onPolygonClick(poly.id);
             } else if (onTogglePolygonSelection) {
